@@ -26,3 +26,5 @@ target/
 .cargo-tools/
 
 rust-migration-notes.md
+# folder kerja agen lokal
+workspace/

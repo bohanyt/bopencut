@@ -124,10 +124,13 @@ async function collectNode({
 		if (!node.resolved || node.resolved.passes.length === 0) {
 			return;
 		}
+		// Fork: varian enum Rust `SceneEffect` (serde tag + rename_all) membaca field snake_case;
+		// kirim keduanya supaya trek efek (adjustment layer) tidak memutus preview.
 		items.push({
 			type: "sceneEffect",
 			effectPassGroups: [node.resolved.passes],
-		});
+			effect_pass_groups: [node.resolved.passes],
+		} as any);
 		return;
 	}
 

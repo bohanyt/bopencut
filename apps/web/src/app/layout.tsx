@@ -29,15 +29,7 @@ export default function RootLayout({
 		<html lang="en" suppressHydrationWarning>
 			<head>
 				<BotIdClient protect={protectedRoutes} />
-				{process.env.NODE_ENV === "development" && (
-					<>
-						<Script
-							src="//unpkg.com/react-scan/dist/auto.global.js"
-							crossOrigin="anonymous"
-							strategy="beforeInteractive"
-						/>
-					</>
-				)}
+				{/* Fork: React Scan (overlay ungu debug render) dimatikan. */}
 			</head>
 			<body className={`${siteFont.className} font-sans antialiased`}>
 				<ThemeProvider
@@ -47,18 +39,7 @@ export default function RootLayout({
 				>
 					<TooltipProvider>
 						<Toaster />
-						<Script
-							src="https://cdn.databuddy.cc/databuddy.js"
-							strategy="afterInteractive"
-							async
-							data-client-id="UP-Wcoy5arxFeK7oyjMMZ"
-							data-disabled={webEnv.NODE_ENV === "development"}
-							data-track-attributes={false}
-							data-track-errors={true}
-							data-track-outgoing-links={false}
-							data-track-web-vitals={false}
-							data-track-sessions={false}
-						/>
+						{/* Fork: analitik databuddy dibuang (lokal saja). */}
 						{children}
 					</TooltipProvider>
 				</ThemeProvider>

@@ -1,3 +1,5 @@
+> **bopencut** — fork dari OpenCut (classic) oleh tim [OpenCut](https://github.com/opencut-app/opencut), lisensi MIT. Editor dasarnya sepenuhnya karya mereka. Tambahan fork ini (jembatan agen: impor draf, sinkron timeline, draf yang bisa di-Undo; GIF bergerak; perbaikan preview trek efek) dijelaskan di [AGENT.md](AGENT.md). README asli OpenCut di bawah.
+
 # OpenCut (Legacy)
 
 This is the original OpenCut codebase. It's archived and no longer maintained.

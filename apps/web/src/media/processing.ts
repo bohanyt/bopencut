@@ -95,7 +95,18 @@ export async function processMediaAssets({
 	const total = fileArray.length;
 	let completed = 0;
 
-	for (const file of fileArray) {
+	for (const original of fileArray) {
+		// GIF diubah ke MP4 di server lokal supaya animasinya ikut (bukan frame pertama saja).
+		let file = original;
+		if (original.type === "image/gif") {
+			try {
+				const res = await fetch("/api/agent/gif", { method: "POST", body: original });
+				if (!res.ok) throw new Error(await res.text());
+				file = new File([await res.blob()], original.name.replace(/\.gif$/i, "") + ".mp4", { type: "video/mp4" });
+			} catch (error) {
+				toast.error(`GIF ${original.name} tidak bisa diubah ke video; dipakai sebagai gambar diam`);
+			}
+		}
 		const fileType = getMediaTypeFromFile({ file });
 
 		if (!fileType) {
