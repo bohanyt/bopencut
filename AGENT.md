@@ -1,4 +1,4 @@
-# bopencut — OpenCut + agen
+# bopencut — ruang kerja bersama manusia + AI
 
 **bopencut** adalah fork dari [OpenCut](https://github.com/opencut-app/opencut-classic) buatan tim OpenCut (lisensi MIT, lihat `LICENSE`). Semua kredit editor dasarnya milik mereka; fork ini hanya menambahkan jembatan agen dan beberapa perbaikan kecil. Dipakai untuk proyek video apa saja. Manusia mengedit di UI seperti biasa; agen (AI/skrip) bisa membaca dan mengubah timeline yang sama tanpa menimpa edit manusia.
 

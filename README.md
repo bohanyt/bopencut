@@ -1,4 +1,17 @@
-> **bopencut** — fork dari OpenCut (classic) oleh tim [OpenCut](https://github.com/opencut-app/opencut), lisensi MIT. Editor dasarnya sepenuhnya karya mereka. Tambahan fork ini (jembatan agen: impor draf, sinkron timeline, draf yang bisa di-Undo; GIF bergerak; perbaikan preview trek efek) dijelaskan di [AGENT.md](AGENT.md). README asli OpenCut di bawah.
+# bopencut — satu timeline untuk kamu dan AI
+
+**bopencut** adalah editor video web tempat **manusia dan AI mengedit timeline yang sama**. Kamu menggeser, memotong, dan menata di UI seperti CapCut. AI (agen/skrip) membaca timeline itu, tahu letak setiap item, lalu ikut mengedit. Perubahan dari AI muncul di editor dan bisa di-Undo, sedangkan editanmu tidak tertimpa.
+
+- **AI melihat editanmu:** setiap perubahan di timeline otomatis ditulis ke folder kerja sebagai JSON (trek, item, waktu, posisi).
+- **AI ikut mengedit:** AI mengirim perubahan per item (geser, ubah posisi/durasi, hapus). Editor menerapkannya dalam ±2 detik sebagai **satu langkah Undo**. Item yang sudah kamu hapus tidak dihidupkan lagi.
+- **AI menyiapkan draf:** AI menyusun proyek utuh (aset + trek + elemen), kamu membukanya di `/agent` lalu lanjut mengedit.
+- **Lokal:** jalan di laptopmu, tanpa akun. Satu folder kerja per proyek (`AGENT_WORKSPACE`).
+
+Detail format dan cara pakai: [AGENT.md](AGENT.md).
+
+> bopencut adalah fork dari **OpenCut (classic)** buatan tim [OpenCut](https://github.com/opencut-app/opencut), lisensi MIT (lihat `LICENSE`). Editor dasarnya sepenuhnya karya mereka; fork ini menambahkan ruang kerja bersama AI, GIF bergerak, dan perbaikan preview trek efek. README asli OpenCut ada di bawah.
+
+---
 
 # OpenCut (Legacy)
 
