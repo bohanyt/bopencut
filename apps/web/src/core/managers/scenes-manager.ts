@@ -22,12 +22,24 @@ import {
 	UpdateBookmarkCommand,
 } from "@/commands/scene";
 import type { MediaTime } from "@/wasm";
-import { assertTracksAcyclic, syncCompoundDurations } from "@/timeline/compound";
+import {
+	assertTracksAcyclic,
+	relocateVisualCompounds,
+	syncCompoundDurations,
+} from "@/timeline/compound";
+
+/** Tracks of another scene that the scenes manager changed itself while a command ran. */
+export interface DerivedSceneChange {
+	sceneId: string;
+	before: SceneTracks;
+	after: SceneTracks;
+}
 
 export class ScenesManager {
 	private active: TScene | null = null;
 	private list: TScene[] = [];
 	private listeners = new Set<() => void>();
+	private derivedLog: Map<string, { before: SceneTracks; after: SceneTracks }> | null = null;
 
 	constructor(private editor: EditorCore) {}
 
@@ -181,7 +193,7 @@ export class ScenesManager {
 		try {
 			const result = await storageService.loadProject({ id: projectId });
 			if (result?.project.scenes) {
-				const ensuredScenes = syncCompoundDurations(result.project.scenes ?? []);
+				const ensuredScenes = this.normalize(result.project.scenes ?? []);
 				const currentScene = findCurrentScene({
 					scenes: ensuredScenes,
 					currentSceneId: result.project.currentSceneId,
@@ -206,7 +218,7 @@ export class ScenesManager {
 		scenes: TScene[];
 		currentSceneId?: string;
 	}): void {
-		const ensuredScenes = syncCompoundDurations(ensureMainScene({ scenes }));
+		const ensuredScenes = this.normalize(ensureMainScene({ scenes }));
 		const currentScene = currentSceneId
 			? ensuredScenes.find((s) => s.id === currentSceneId)
 			: null;
@@ -270,7 +282,7 @@ export class ScenesManager {
 			if (this.list.includes(scene)) continue;
 			assertTracksAcyclic({ scenes, sceneId: scene.id, tracks: scene.tracks });
 		}
-		scenes = syncCompoundDurations(scenes);
+		scenes = this.normalize(scenes);
 		this.list = scenes;
 		const nextActiveSceneId = activeSceneId ?? this.active?.id ?? null;
 		this.active = nextActiveSceneId
@@ -297,6 +309,80 @@ export class ScenesManager {
 		return () => this.listeners.delete(listener);
 	}
 
+	/**
+	 * Runs `fn` with `sceneId` as the active scene, then switches back. Commands act on the active
+	 * scene, so this binds undo/redo to the scene a command ran in. If the previous scene no longer
+	 * exists afterwards, the scene `fn` ran in stays active.
+	 */
+	runInScene<T>({ sceneId, fn }: { sceneId: string | null; fn: () => T }): T {
+		const previousId = this.active?.id ?? null;
+		const target = sceneId ? this.list.find((s) => s.id === sceneId) : undefined;
+		if (!target || previousId === sceneId) return fn();
+
+		this.active = target;
+		try {
+			return fn();
+		} finally {
+			this.active =
+				this.list.find((s) => s.id === previousId) ??
+				this.list.find((s) => s.id === sceneId) ??
+				getMainScene({ scenes: this.list });
+			this.notify();
+		}
+	}
+
+	/** Starts recording tracks of other scenes that change as a side effect (compound relocation). */
+	beginDerivedLog(): void {
+		this.derivedLog = new Map();
+	}
+
+	endDerivedLog(): DerivedSceneChange[] {
+		const changes = [...(this.derivedLog ?? new Map()).entries()].map(
+			([sceneId, change]) => ({ sceneId, ...change }),
+		);
+		this.derivedLog = null;
+		return changes;
+	}
+
+	/** Puts derived changes back (undo, failed command) or re-applies them (redo). */
+	applyDerivedChanges({
+		changes,
+		side,
+	}: {
+		changes: DerivedSceneChange[];
+		side: "before" | "after";
+	}): void {
+		if (changes.length === 0) return;
+		const tracksById = new Map(changes.map((change) => [change.sceneId, change[side]]));
+		this.setScenes({
+			scenes: this.list.map((scene) => {
+				const tracks = tracksById.get(scene.id);
+				return tracks ? { ...scene, tracks } : scene;
+			}),
+		});
+	}
+
+	/**
+	 * Derived compound state: clips that gained visuals leave audio tracks, then every
+	 * sourceDuration follows its nested scene. Relocations of scenes other than the active one
+	 * are logged so the running command can undo and redo them.
+	 */
+	private normalize(scenes: TScene[]): TScene[] {
+		const relocated = relocateVisualCompounds(scenes);
+		const synced = syncCompoundDurations(relocated);
+		if (this.derivedLog && relocated !== scenes) {
+			for (const [index, scene] of scenes.entries()) {
+				if (relocated[index] === scene || scene.id === this.active?.id) continue;
+				const logged = this.derivedLog.get(scene.id);
+				this.derivedLog.set(scene.id, {
+					before: logged?.before ?? scene.tracks,
+					after: synced[index].tracks,
+				});
+			}
+		}
+		return synced;
+	}
+
 	private notify(): void {
 		this.listeners.forEach((fn) => {
 			fn();
@@ -315,7 +401,7 @@ export class ScenesManager {
 			updatedAt: new Date(),
 		};
 
-		this.list = syncCompoundDurations(
+		this.list = this.normalize(
 			this.list.map((s) => (s.id === activeId ? updatedScene : s)),
 		);
 		this.active = this.list.find((s) => s.id === activeId) ?? updatedScene;

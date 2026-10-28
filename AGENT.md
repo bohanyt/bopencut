@@ -61,13 +61,22 @@ Add text with `text:"Text"` on a `text` track; text attributes can be set throug
 Preview quality can be selected in the toolbar: Full, ½ (default), or ¼. The choice is stored in the browser and does not reduce export or agent frame quality.
 
 ## Compound clips
-A compound clip is an element `{type:"compound", sceneId, startTime, duration, trimStart, trimEnd, sourceDuration, params}` that points at a nested scene with `kind:"compound"` (hidden from the scene picker; regular scenes have no `kind`). The nested scene's tracks render as one layer: nested time = `t - startTime + trimStart`. `params` are the video ones: `transform.*`, `opacity`, and `blendMode` act on the whole group; `volume` (dB) and `muted` act on all nested audio (audio clips and video source audio). Nested gains add up exactly; only the final gain is clamped. Clips with any visual content sit on video tracks, audio-only ones on audio tracks (`getTrackTypeForElement` / `getCompoundTrackType`), and insert, move, and paste follow that rule. A compound on the main track keeps the blurred background, taken from its nested main-track media.
+A compound clip is an element `{type:"compound", sceneId, startTime, duration, trimStart, trimEnd, sourceDuration, params}` that points at a nested scene with `kind:"compound"` (hidden from the scene picker; regular scenes have no `kind`). The nested scene's tracks render as one layer: nested time = `t - startTime + trimStart`. `params` are the video ones: `transform.*`, `opacity`, and `blendMode` act on the whole group; `volume` (dB) and `muted` act on all nested audio (audio clips and video source audio). Nested gains add up exactly; only the final gain is clamped. Compound `volume` is a single gain for now: it cannot be keyframed (`keyframable: false`) until automation is composed into the nested mix. A compound on the main track keeps the blurred background, taken from its nested main-track media.
+
+Track placement (content-change policy):
+- A new compound goes on a video track if its content has anything visual, otherwise on an audio track (`getTrackTypeForElement` / `getCompoundTrackType`).
+- A compound already on a video track stays valid whatever its content becomes; one that turns audio-only keeps playing its audio there, and moves along its track never fail.
+- A compound on an audio track must stay audio-only. When its content gains visuals, it is moved to a video track with the same mute state in every scene that uses it, inside the same command, so one Undo moves it back and Redo restores the same track.
 
 Rules kept by the scenes manager on every change:
 - `sourceDuration` always equals the nested scene's duration. A clip's span (`startTime`, `duration`, `trimStart`) never changes implicitly: added content becomes `trimEnd` (the clip can then be extended); removed content leaves `trimEnd` at 0 and an empty tail until the clip is shortened.
 - A change that would make a scene contain itself (directly or through nested clips) is rejected with `CompoundCycleError` before anything is applied; a batch is rolled back as a whole.
 - A scene that a compound clip still references cannot be deleted.
 
-A nested scene carries `compoundOrigin: {hostTrackOrder, trackSources}`: the host track order when the clip was created and, per nested track id, the host track its elements came from. Ungroup puts each nested track back on that host track when it still exists and has room, otherwise next to its original neighbours.
+History is scene-bound: each command remembers the scene it ran in, and Undo/Redo apply it there even if another scene is open (e.g. edit inside a compound, go back, Undo reverts the nested edit). Selection is only restored while that scene is open.
+
+A nested scene carries `compoundOrigin: {hostTrackOrder, trackSources}`: the host track order when the clip was created and, per nested track id, the host track its elements came from. Ungroup puts each nested track back on that host track when it still exists, has room, and is muted/hidden the same way; otherwise on a separate track right next to it that keeps the nested track's state.
 
 Console/API: `editor.timeline.createCompound({elements:[{trackId,elementId}], name?})` returns `{compound, sceneId}`; `editor.timeline.ungroupCompound({trackId, elementId})` returns refs of the restored elements. Only the visible (trimmed) part comes back, at parent times; the clip's volume and mute are folded into the restored audio, video, and compound elements; its transform is not baked in. Each is one Undo step.
+
+Decision for duplicate and copy-paste (to implement in the timeline UI and agent paths): duplicating or pasting a compound must deep-copy its nested scene, so the copy is independent (as in CapCut). A shared nested scene only arises from explicit features (today: the two halves of a split). The generic duplicate/paste commands do not do this yet; they still copy only the element, so the copy shares the nested scene.

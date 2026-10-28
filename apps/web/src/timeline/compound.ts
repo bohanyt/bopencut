@@ -84,6 +84,37 @@ function getReferencedSceneIds(tracks: SceneTracks): string[] {
 	return ids;
 }
 
+/**
+ * Reachability over the compound graph of `scenes`. Each scene's references are read at most
+ * once per checker, and a search from several sources shares one visited set, so validating
+ * many references to the same large scene stays cheap.
+ */
+function createReachability(scenes: TScene[]) {
+	const byId = new Map(scenes.map((scene) => [scene.id, scene]));
+	const references = new Map<string, string[]>();
+	const referencesOf = (sceneId: string): string[] => {
+		let ids = references.get(sceneId);
+		if (!ids) {
+			const scene = byId.get(sceneId);
+			ids = scene ? [...new Set(getReferencedSceneIds(scene.tracks))] : [];
+			references.set(sceneId, ids);
+		}
+		return ids;
+	};
+	return (sources: Iterable<string>, targetSceneId: string): boolean => {
+		const visited = new Set<string>();
+		const pending = [...new Set(sources)];
+		while (pending.length > 0) {
+			const sceneId = pending.pop() as string;
+			if (sceneId === targetSceneId) return true;
+			if (visited.has(sceneId)) continue;
+			visited.add(sceneId);
+			pending.push(...referencesOf(sceneId));
+		}
+		return false;
+	};
+}
+
 /** True when `fromSceneId` is `targetSceneId` or contains it through compound clips. */
 export function sceneReachesScene({
 	scenes,
@@ -94,17 +125,7 @@ export function sceneReachesScene({
 	fromSceneId: string;
 	targetSceneId: string;
 }): boolean {
-	const visited = new Set<string>();
-	const pending = [fromSceneId];
-	while (pending.length > 0) {
-		const sceneId = pending.pop() as string;
-		if (sceneId === targetSceneId) return true;
-		if (visited.has(sceneId)) continue;
-		visited.add(sceneId);
-		const scene = findScene(scenes, sceneId);
-		if (scene) pending.push(...getReferencedSceneIds(scene.tracks));
-	}
-	return false;
+	return createReachability(scenes)([fromSceneId], targetSceneId);
 }
 
 /** Throws CompoundCycleError if placing a compound of `sceneId` inside `hostSceneId` creates a loop. */
@@ -160,6 +181,12 @@ export function getCompoundTrackType({
 	return sceneHasVisualContent({ scenes, sceneId }) ? "video" : "audio";
 }
 
+/**
+ * Content-change policy: a compound on a video track may hold anything (an audio-only one keeps
+ * playing its audio there), so its existing placement never becomes invalid. A compound on an
+ * audio track must be audio-only; when its content gains visuals it is moved to a video track
+ * (relocateVisualCompounds). New clips are placed by getCompoundTrackType.
+ */
 export function canCompoundGoOnTrack({
 	scenes,
 	sceneId,
@@ -169,7 +196,8 @@ export function canCompoundGoOnTrack({
 	sceneId: string;
 	trackType: TimelineTrack["type"];
 }): boolean {
-	return getCompoundTrackType({ scenes, sceneId }) === trackType;
+	if (trackType === "video") return true;
+	return trackType === "audio" && !sceneHasVisualContent({ scenes, sceneId });
 }
 
 /**
@@ -253,6 +281,15 @@ function isTrackHidden(track: TimelineTrack): boolean {
  */
 function isNeutralTrack(track: TimelineTrack): boolean {
 	return !(canTrackHaveAudio(track) && track.muted) && !isTrackHidden(track);
+}
+
+function isTrackMuted(track: TimelineTrack): boolean {
+	return canTrackHaveAudio(track) && track.muted;
+}
+
+/** Same mute and hide state, so moving elements between the two tracks changes nothing. */
+function haveSameTrackState(a: TimelineTrack, b: TimelineTrack): boolean {
+	return isTrackMuted(a) === isTrackMuted(b) && isTrackHidden(a) === isTrackHidden(b);
 }
 
 function findTrackIn(tracks: SceneTracks, trackId: string): TimelineTrack | undefined {
@@ -600,11 +637,13 @@ export function ungroupCompoundElement({
 			duration: element.duration,
 		}));
 
-		// Back onto the original track when it still exists and has room.
+		// Back onto the original track when it still exists, has room, and is muted/hidden the
+		// same way as the nested track; otherwise a separate track right next to it keeps the state.
 		const survivor = sourceTrackId ? findTrackIn(nextTracks, sourceTrackId) : undefined;
 		if (
 			survivor &&
 			survivor.type === nestedTrack.type &&
+			haveSameTrackState(survivor, nestedTrack) &&
 			canPlaceTimeSpansOnTrack({ track: survivor, timeSpans })
 		) {
 			mergeInto(survivor, elements);
@@ -625,15 +664,19 @@ export function ungroupCompoundElement({
 				: { ...nestedTrack, id, elements }
 		) as TimelineTrack;
 		for (const element of elements) restored.push({ trackId: id, elementId: element.id });
-		if (track.type === "audio") {
-			const at =
-				findOriginalPosition(nextTracks.audio, order, sourceTrackId) ?? audioFallback++;
-			nextTracks.audio.splice(at, 0, track);
-		} else {
-			const at =
-				findOriginalPosition(nextTracks.overlay, order, sourceTrackId) ?? overlayFallback++;
-			nextTracks.overlay.splice(at, 0, track);
-		}
+		const section: TimelineTrack[] = track.type === "audio" ? nextTracks.audio : nextTracks.overlay;
+		const survivorIndex = survivor ? section.findIndex((t) => t.id === survivor.id) : -1;
+		const besideSurvivor =
+			survivorIndex >= 0
+				? survivorIndex + 1
+				: survivor?.id === nextTracks.main.id && track.type !== "audio"
+					? nextTracks.overlay.length
+					: null;
+		const at =
+			besideSurvivor ??
+			findOriginalPosition(section, order, sourceTrackId) ??
+			(track.type === "audio" ? audioFallback++ : overlayFallback++);
+		section.splice(at, 0, track);
 	}
 
 	const nextScenes = scenes
@@ -695,6 +738,72 @@ export function syncCompoundDurations(scenes: TScene[]): TScene[] {
 	return changed ? next : scenes;
 }
 
+/**
+ * Moves compound clips whose content gained visuals off audio tracks onto a video track with the
+ * same mute state (an existing one with room, else a new one just above the main track), in every
+ * scene that references them. Deterministic, so redo produces the same tracks. Emptied audio
+ * tracks are removed.
+ */
+export function relocateVisualCompounds(scenes: TScene[]): TScene[] {
+	if (!scenes.some(isCompoundScene)) return scenes;
+	let changed = false;
+	const next = scenes.map((scene) => {
+		const moving: { element: CompoundElement; from: AudioTrack }[] = [];
+		for (const track of scene.tracks.audio) {
+			for (const element of track.elements) {
+				if (
+					isCompoundElement(element) &&
+					sceneHasVisualContent({ scenes, sceneId: element.sceneId })
+				) {
+					moving.push({ element, from: track });
+				}
+			}
+		}
+		if (moving.length === 0) return scene;
+		changed = true;
+
+		const movingIds = new Set(moving.map(({ element }) => element.id));
+		const audioAfter = scene.tracks.audio.map((track) => ({
+			...track,
+			elements: track.elements.filter((element) => !movingIds.has(element.id)),
+		}));
+		let overlay = [...scene.tracks.overlay];
+		const usedIds = new Set(getOrderedTracks(scene.tracks).map((track) => track.id));
+		for (const { element, from } of moving) {
+			const timeSpans = [{ startTime: element.startTime, duration: element.duration }];
+			const target = overlay.find(
+				(track): track is VideoTrack =>
+					track.type === "video" &&
+					track.muted === from.muted &&
+					!track.hidden &&
+					canPlaceTimeSpansOnTrack({ track, timeSpans }),
+			);
+			if (target) {
+				overlay = overlay.map((track) =>
+					track === target ? { ...target, elements: [...target.elements, element] } : track,
+				);
+				continue;
+			}
+			let id = `${element.id}-video`;
+			for (let n = 2; usedIds.has(id); n++) id = `${element.id}-video-${n}`;
+			usedIds.add(id);
+			overlay = [
+				...overlay,
+				{ ...buildEmptyTrack({ id, type: "video" }), muted: from.muted, elements: [element] },
+			];
+		}
+		return {
+			...scene,
+			tracks: {
+				overlay,
+				main: scene.tracks.main,
+				audio: removeEmptiedTracks(scene.tracks.audio, audioAfter),
+			},
+		};
+	});
+	return changed ? next : scenes;
+}
+
 /** Throws CompoundCycleError if giving scene `sceneId` these `tracks` would make it contain itself. */
 export function assertTracksAcyclic({
 	scenes,
@@ -708,10 +817,8 @@ export function assertTracksAcyclic({
 	const referenced = getReferencedSceneIds(tracks);
 	if (referenced.length === 0) return;
 	const nextScenes = scenes.map((scene) => (scene.id === sceneId ? { ...scene, tracks } : scene));
-	for (const fromSceneId of referenced) {
-		if (sceneReachesScene({ scenes: nextScenes, fromSceneId, targetSceneId: sceneId })) {
-			throw new CompoundCycleError(sceneId);
-		}
+	if (createReachability(nextScenes)(referenced, sceneId)) {
+		throw new CompoundCycleError(sceneId);
 	}
 }
 

@@ -317,7 +317,8 @@ describe("compound clip rules", () => {
 		expect(valid(visual, "audio", created.scenes)).toBe(false);
 		expect(valid(visual, "video", created.scenes)).toBe(true);
 		expect(valid(audioClip, "audio", audioOnly.scenes)).toBe(true);
-		expect(valid(audioClip, "video", audioOnly.scenes)).toBe(false);
+		// Policy: a compound may always stay on a video track (its audio still plays there).
+		expect(valid(audioClip, "video", audioOnly.scenes)).toBe(true);
 		expect(getTrackTypeForElement({ element: audioClip, scenes: audioOnly.scenes })).toBe("audio");
 		expect(getTrackTypeForElement({ element: visual, scenes: created.scenes })).toBe("video");
 	});

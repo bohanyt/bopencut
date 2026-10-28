@@ -1,5 +1,5 @@
 import type { ElementType, TScene, TrackType } from "@/timeline";
-import { getCompoundTrackType } from "@/timeline/compound";
+import { canCompoundGoOnTrack, getCompoundTrackType } from "@/timeline/compound";
 
 const ELEMENT_TRACK_MAP: Record<ElementType, TrackType> = {
 	audio: "audio",
@@ -21,7 +21,7 @@ export function getTrackTypeForElementType({
 	return ELEMENT_TRACK_MAP[elementType];
 }
 
-/** Required track type of a concrete element; compound clips depend on their nested content. */
+/** Track type a new element is placed on; compound clips depend on their nested content. */
 export function getTrackTypeForElement({
 	element,
 	scenes,
@@ -57,7 +57,11 @@ export function validateElementTrackCompatibility({
 	track: { type: TrackType };
 	scenes: TScene[];
 }): { isValid: boolean; errorMessage?: string } {
-	const isValid = getTrackTypeForElement({ element, scenes }) === track.type;
+	// A compound may stay on a video track whatever its content (see canCompoundGoOnTrack).
+	const isValid =
+		element.type === "compound" && element.sceneId
+			? canCompoundGoOnTrack({ scenes, sceneId: element.sceneId, trackType: track.type })
+			: getTrackTypeForElement({ element, scenes }) === track.type;
 
 	if (!isValid) {
 		return {

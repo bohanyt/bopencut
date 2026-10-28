@@ -363,9 +363,15 @@ elementParamRegistry.register({
 });
 elementParamRegistry.register({ key: "audio", definition: audioElementParams });
 elementParamRegistry.register({ key: "effect", definition: [] });
+// Compound volume is a single gain for now: keyframes would not reach the nested audio mix yet.
 elementParamRegistry.register({
 	key: "compound",
-	definition: [...visualElementParams, ...audioElementParams],
+	definition: [
+		...visualElementParams,
+		...audioElementParams.map((param) =>
+			param.key === "volume" ? { ...param, keyframable: false } : param,
+		),
+	],
 });
 
 export function getElementParams({

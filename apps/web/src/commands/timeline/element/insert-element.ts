@@ -9,6 +9,7 @@ import type {
 import { generateUUID } from "@/utils/id";
 import { requiresMediaId } from "@/timeline/element-utils";
 import type { MediaAsset } from "@/media/types";
+import type { TProjectSettings } from "@/project/types";
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { floatToFrameRate } from "@/fps/utils";
 import { graphicsRegistry, registerDefaultGraphics } from "@/graphics";
@@ -33,6 +34,8 @@ export class InsertElementCommand extends Command {
 	private elementId: string;
 	private savedState: SceneTracks | null = null;
 	private targetTrackId: string | null = null;
+	/** Project settings this insertion changed (first visual media sets canvas size and fps). */
+	private savedSettings: Partial<TProjectSettings> | null = null;
 
 	constructor({ element, placement }: InsertElementParams) {
 		super();
@@ -80,9 +83,12 @@ export class InsertElementCommand extends Command {
 		const isVisualMedia =
 			newElement.type === "video" || newElement.type === "image";
 
+		this.savedSettings = null;
 		if (isFirstElement && isVisualMedia) {
 			const mediaAssets = editor.media.getAssets();
 			const activeProject = editor.project.getActive();
+			const { canvasSize, originalCanvasSize, fps } = activeProject.settings;
+			this.savedSettings = { canvasSize, originalCanvasSize, fps };
 			const asset = mediaAssets.find(
 				(item: MediaAsset) => item.id === newElement.mediaId,
 			);
@@ -128,6 +134,12 @@ export class InsertElementCommand extends Command {
 		if (this.savedState) {
 			const editor = EditorCore.getInstance();
 			editor.timeline.updateTracks(this.savedState);
+			if (this.savedSettings) {
+				editor.project.updateSettings({
+					settings: this.savedSettings,
+					pushHistory: false,
+				});
+			}
 		}
 	}
 
@@ -212,7 +224,17 @@ export class InsertElementCommand extends Command {
 		const placement = this.placement;
 		const scenes = EditorCore.getInstance().scenes.getScenes();
 		// Compound clips need a video or audio track depending on what they contain.
-		const requiredTrackType = getTrackTypeForElement({ element, scenes });
+		const explicitTrack =
+			placement.mode === "explicit"
+				? [...tracks.overlay, tracks.main, ...tracks.audio].find(
+						(track) => track.id === placement.trackId,
+					)
+				: undefined;
+		const requiredTrackType =
+			explicitTrack &&
+			validateElementTrackCompatibility({ element, track: explicitTrack, scenes }).isValid
+				? explicitTrack.type
+				: getTrackTypeForElement({ element, scenes });
 
 		if (
 			placement.mode === "auto" &&
