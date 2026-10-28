@@ -33,3 +33,9 @@ Konsol browser: `window.agent.snapshot()`, `window.agent.applyDraft(draft)`.
 - GIF yang di-drop diubah ke MP4 bisu (ffmpeg lokal) supaya bergerak.
 - Perbaikan: preview putus pada trek efek (`effect_pass_groups`).
 - Dibuang: React Scan, indikator dev Next, analitik databuddy.
+
+## Catatan selera
+
+Sebelum menyusun bundle atau draf, baca `PREFERENCES.md` umum di folder `AGENT_PREFS` dan `AGENT_WORKSPACE/PREFERENCES.md` untuk proyek/channel jika ada. Kedua file bersifat pribadi dan tidak disimpan di repo. Editor tidak membacanya.
+
+Edit manusia dicatat di `AGENT_WORKSPACE/edits/<projectId>.jsonl`. Jalankan `bun apps/web/scripts/edits-summary.ts <AGENT_WORKSPACE> [workspace lain...]` (tambahkan `--json` untuk JSON). Tulis aturan baru hanya jika pola muncul minimal 3 kali. Setiap aturan memuat aturan, bukti jumlah kejadian dan proyek, serta tanggal; manusia bebas mengedit atau menghapusnya. Contoh format ada di `PREFERENCES.example.md`.
