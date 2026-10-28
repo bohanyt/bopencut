@@ -33,6 +33,8 @@ import { GraphicTab } from "@/graphics/components/graphic-tab";
 import { isModelFile } from "@/media/media-utils";
 import { model3dParams } from "@/params/registry";
 import { OcShapesIcon } from "@/components/icons";
+import { TEXT_STYLE_KEYS } from "@/text/style";
+import { CaptionProperties } from "@/text/components/caption-properties";
 
 const TRANSFORM_PARAM_KEYS = [
 	"transform.positionX",
@@ -187,12 +189,15 @@ function buildTextTab({ element }: { element: TextElement }): PropertiesTabDef {
 		label: "Text",
 		icon: <HugeiconsIcon icon={TextFontIcon} size={16} />,
 		content: ({ trackId }) => (
-			<ElementParamsTab
-				element={element}
-				trackId={trackId}
-				paramKeys={TEXT_PARAM_KEYS}
-				sectionKey="text"
-			/>
+			<>
+				<CaptionProperties element={element} trackId={trackId} />
+				<ElementParamsTab
+					element={element}
+					trackId={trackId}
+					paramKeys={[...TEXT_PARAM_KEYS, ...TEXT_STYLE_KEYS]}
+					sectionKey="text"
+				/>
+			</>
 		),
 	};
 }

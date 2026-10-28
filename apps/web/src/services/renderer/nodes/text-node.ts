@@ -2,7 +2,7 @@ import { BaseNode } from "./base-node";
 import type { TextElement } from "@/timeline";
 import type { EffectPass } from "@/effects/types";
 import type { BlendMode, Transform } from "@/rendering";
-import { drawMeasuredTextLayout } from "@/text/primitives";
+import { drawStyledText } from "@/text/draw-styled";
 import type { MeasuredTextElement } from "@/text/measure-element";
 
 export type TextNodeParams = TextElement & {
@@ -48,11 +48,10 @@ export function renderTextToContext({
 		ctx.rotate((resolved.transform.rotate * Math.PI) / 180);
 	}
 
-	drawMeasuredTextLayout({
+	drawStyledText({
 		ctx,
 		layout: resolved.measuredText,
 		textColor: resolved.textColor,
-		background: resolved.measuredText.resolvedBackground,
 		backgroundColor: resolved.backgroundColor,
 		textBaseline: baseline,
 	});

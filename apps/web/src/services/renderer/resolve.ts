@@ -103,9 +103,21 @@ async function resolveNode({
 		node.resolved = resolveEffectLayerNode({ node, context });
 	}
 
-	await Promise.all(
-		node.children.map((child) => resolveNode({ node: child, context })),
-	);
+	const pending: Promise<void>[] = [];
+	for (const child of node.children) {
+		// A caption track can contain hundreds of phrases, but only the visible ones
+		// need asynchronous traversal. Clear the previous frame before skipping it.
+		if (
+			child instanceof TextNode &&
+			(context.time < child.params.startTime ||
+				context.time >= child.params.startTime + child.params.duration)
+		) {
+			child.resolved = null;
+			continue;
+		}
+		pending.push(resolveNode({ node: child, context }));
+	}
+	await Promise.all(pending);
 }
 
 function resolveEffectPassGroups({

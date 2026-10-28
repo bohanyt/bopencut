@@ -3,9 +3,10 @@ import { DEFAULTS } from "@/timeline/defaults";
 import type { TextElement } from "@/timeline";
 import type { TextBackground } from "@/text/background";
 import { resolveNumberAtTime } from "@/animation/values";
-import {
-	getTextVisualRect,
-} from "./layout";
+import { resolveTextStyle, textNumber, type ResolvedTextStyle } from "./style";
+import { activeWordIndex } from "./caption";
+import { TICKS_PER_SECOND } from "@/wasm";
+import { getTextVisualRect, setCanvasLetterSpacing } from "./layout";
 import {
 	measureTextLayout,
 	type MeasuredTextLayout,
@@ -27,6 +28,9 @@ export interface ResolvedTextBackground extends TextBackground {
 export interface MeasuredTextElement extends MeasuredTextLayout {
 	resolvedBackground: ResolvedTextBackground;
 	visualRect: { left: number; top: number; width: number; height: number };
+	style: ResolvedTextStyle;
+	activeWord: number;
+	emphasisWords: number[];
 }
 
 let textMeasurementContext:
@@ -74,6 +78,26 @@ export function measureTextElement({
 	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 }): MeasuredTextElement {
 	const text = buildTextLayoutParamsFromElement({ element });
+	text.fontSize = Math.max(
+		1,
+		textNumber(element, "fontSize", text.fontSize, localTime),
+	);
+	text.letterSpacing = textNumber(
+		element,
+		"letterSpacing",
+		text.letterSpacing ?? 0,
+		localTime,
+	);
+	text.lineHeight = Math.max(
+		0.1,
+		textNumber(element, "lineHeight", text.lineHeight ?? 1, localTime),
+	);
+	if (element.caption)
+		text.caption = {
+			maxWidth: textNumber(element, "caption.maxWidth", 0, localTime),
+			noOrphan: element.params["caption.noOrphan"] !== false,
+			wordSpacing: textNumber(element, "caption.wordSpacing", 0, localTime),
+		};
 	const measuredLayout = measureTextLayout({
 		text,
 		canvasHeight,
@@ -115,17 +139,111 @@ export function measureTextElement({
 		}),
 	};
 
-	const visualRect = getTextVisualRect({
+	const baseRect = getTextVisualRect({
 		textAlign: text.textAlign,
 		block: measuredLayout.block,
 		background: resolvedBackground,
 		fontSizeRatio: measuredLayout.fontSizeRatio,
 	});
+	const style = resolveTextStyle(
+		element,
+		measuredLayout.scaledFontSize,
+		localTime,
+	);
+	const radius = Math.max(0, ...style.strokes.map((stroke) => stroke.width));
+	// Include actual glyph overhangs and every potential active-word bump without moving the box during playback.
+	let left = baseRect.left;
+	let top = baseRect.top;
+	let right = left + baseRect.width;
+	let bottom = top + baseRect.height;
+	if (element.caption || radius > 0 || style.shadow.opacity > 0) {
+		ctx.save();
+		ctx.font = measuredLayout.fontString;
+		ctx.textBaseline = "middle";
+		ctx.textAlign = "left";
+		setCanvasLetterSpacing({
+			ctx,
+			letterSpacingPx: measuredLayout.letterSpacing,
+		});
+		const runs =
+			measuredLayout.wordRuns ??
+			measuredLayout.lines.map((text, index) => ({
+				text,
+				x:
+					measuredLayout.textAlign === "left"
+						? 0
+						: -measuredLayout.lineMetrics[index].width /
+							(measuredLayout.textAlign === "center" ? 2 : 1),
+				y:
+					index * measuredLayout.lineHeightPx -
+					measuredLayout.block.visualCenterOffset,
+				width: measuredLayout.lineMetrics[index].width,
+			}));
+		for (const run of runs) {
+			const metric = ctx.measureText(run.text);
+			const bump =
+				element.caption && style.activeEnabled ? style.activeScale : 1;
+			const center = run.x + run.width / 2;
+			left = Math.min(
+				left,
+				center +
+					(-metric.actualBoundingBoxLeft - run.width / 2 - radius) * bump -
+					2,
+			);
+			right = Math.max(
+				right,
+				center +
+					(metric.actualBoundingBoxRight - run.width / 2 + radius) * bump +
+					2,
+			);
+			top = Math.min(
+				top,
+				run.y - (metric.actualBoundingBoxAscent + radius) * bump - 2,
+			);
+			bottom = Math.max(
+				bottom,
+				run.y + (metric.actualBoundingBoxDescent + radius) * bump + 2,
+			);
+		}
+		ctx.restore();
+	}
+	const shadow = style.shadow;
+	const blur = shadow.opacity > 0 ? shadow.blur * 3 : 0;
+	const leftPad =
+		blur + (shadow.opacity > 0 ? Math.max(0, -shadow.offsetX) : 0);
+	const topPad = blur + (shadow.opacity > 0 ? Math.max(0, -shadow.offsetY) : 0);
+	const visualRect = {
+		left: left - leftPad,
+		top: top - topPad,
+		width:
+			right -
+			left +
+			leftPad +
+			blur +
+			(shadow.opacity > 0 ? Math.max(0, shadow.offsetX) : 0),
+		height:
+			bottom -
+			top +
+			topPad +
+			blur +
+			(shadow.opacity > 0 ? Math.max(0, shadow.offsetY) : 0),
+	};
 
 	return {
 		...measuredLayout,
 		resolvedBackground,
 		visualRect,
+		style,
+		activeWord: element.caption
+			? activeWordIndex(
+					element.caption.words,
+					(localTime + element.trimStart) / TICKS_PER_SECOND,
+				)
+			: -1,
+		emphasisWords:
+			element.caption?.words.flatMap((word, index) =>
+				word.highlight ? [index] : [],
+			) ?? [],
 	};
 }
 

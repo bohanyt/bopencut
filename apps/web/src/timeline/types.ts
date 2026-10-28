@@ -154,6 +154,7 @@ export interface ImageElement extends BaseTimelineElement {
 
 export interface TextElement extends BaseTimelineElement {
 	type: "text";
+	caption?: import("@/text/caption").CaptionData;
 	hidden?: boolean;
 	effects?: Effect[];
 }

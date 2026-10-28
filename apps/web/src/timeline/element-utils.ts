@@ -4,6 +4,7 @@ import {
 	RETIMABLE_ELEMENT_TYPES,
 	VISUAL_ELEMENT_TYPES,
 	type CreateEffectElement,
+	type CreateTextElement,
 	type CreateGraphicElement,
 	type CreateTimelineElement,
 	type CreateVideoElement,
@@ -104,12 +105,13 @@ export function buildTextElement({
 }: {
 	raw: Partial<Omit<TextElement, "type" | "id">>;
 	startTime: MediaTime;
-}): CreateTimelineElement {
+}): CreateTextElement {
 	const t = raw as Partial<TextElement>;
 
 	return {
 		type: "text",
 		name: t.name ?? DEFAULTS.text.element.name,
+		caption: t.caption,
 		duration: t.duration ?? DEFAULT_NEW_ELEMENT_DURATION,
 		startTime,
 		trimStart: ZERO_MEDIA_TIME,

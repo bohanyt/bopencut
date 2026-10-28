@@ -10,6 +10,7 @@ import type {
 	TimelineElement,
 } from "@/timeline";
 import { DEFAULTS } from "@/timeline/defaults";
+import { textStyleParams } from "@/text/style";
 import { VOLUME_DB_MAX, VOLUME_DB_MIN } from "@/timeline/audio-constants";
 import {
 	CORNER_RADIUS_MAX,
@@ -351,7 +352,7 @@ elementParamRegistry.register({
 elementParamRegistry.register({ key: "image", definition: [...visualElementParams, ...model3dParams] });
 elementParamRegistry.register({
 	key: "text",
-	definition: [...textElementParams, ...visualElementParams],
+	definition: [...textElementParams, ...textStyleParams, ...visualElementParams],
 });
 elementParamRegistry.register({
 	key: "sticker",

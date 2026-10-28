@@ -7,6 +7,7 @@ import {
 import type { RetimeConfig, SceneTracks, TimelineElement } from "@/timeline";
 import { isRetimableElement } from "@/timeline";
 import { ZERO_MEDIA_TIME, roundMediaTime } from "@/wasm";
+import { reconcileCaptionEdit } from "@/text/caption";
 
 type ElementUpdateField = keyof TimelineElement | string;
 
@@ -183,7 +184,8 @@ export function applyElementUpdate({
 		}).element;
 	}
 
-	return nextElement;
+	return element.type === "text" && nextElement.type === "text"
+		? reconcileCaptionEdit(element, nextElement) : nextElement;
 }
 
 function shouldApplyRule({

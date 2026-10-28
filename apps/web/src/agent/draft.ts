@@ -12,11 +12,13 @@ import { validNote } from "./notes";
 import { type AgentElement, type AgentTrackRef, type LoadedMedia, secs } from "./elements";
 import { type BuildContext, applyAgentKeyframes, cloneTracks, placeAgentElement } from "./compound-content";
 import { type AgentMatch, type ElementHit, addressOf, getScenePaths, orderedTracks, resolveCompoundTarget, resolveMatch } from "./scene-graph";
+import { updateAgentCaption, type AgentCaption } from "./captions";
+import { reconcileCaptionEdit } from "@/text/caption";
 
 /** `compound` = add into that compound clip's content (times relative to it). */
 export type DraftTrackRef = AgentTrackRef & { compound?: AgentMatch };
 export type DraftOp =
-	| { op: "set"; match: AgentMatch; start?: number; duration?: number; trimStart?: number; params?: Record<string, unknown> }
+	| { op: "set"; match: AgentMatch; start?: number; duration?: number; trimStart?: number; params?: Record<string, unknown>; caption?: Partial<AgentCaption> }
 	| { op: "delete"; match: AgentMatch }
 	| { op: "note"; text: string; start: number; end?: number; match?: AgentMatch[] }
 	| { op: "resolve-note"; id: string }
@@ -119,7 +121,11 @@ export function computeAgentDraft({ scenes, rootSceneId, ops, mediaFor, canvas, 
 						patch.trimEnd = Math.max(0, el.sourceDuration - (patch.trimStart ?? el.trimStart) - (patch.duration ?? el.duration));
 					}
 					if (op.params) patch.params = { ...el.params, ...op.params };
-					track.elements[hit.index] = { ...el, ...patch };
+					if (op.caption && el.type !== "text") throw new Error("caption can only update a text element");
+					const updated = { ...el, ...patch };
+					track.elements[hit.index] = el.type === "text"
+						? op.caption ? updateAgentCaption(reconcileCaptionEdit(el, updated), op.caption) : reconcileCaptionEdit(el, updated)
+						: updated;
 				});
 				touched.push({ sceneId: hit.sceneId, elementId: hit.element.id });
 				address(result, "element", hit.sceneId, hit.element.id);

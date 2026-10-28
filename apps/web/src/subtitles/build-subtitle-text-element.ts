@@ -15,6 +15,7 @@ import type {
 	TextFontWeight,
 } from "@/text/primitives";
 import type { SubtitleCue, SubtitleStyleOverrides } from "./types";
+import { makeCaption } from "@/text/caption";
 
 const SUBTITLE_MAX_WIDTH_RATIO = 0.8;
 const SUBTITLE_BOTTOM_MARGIN_RATIO = 0.05;
@@ -315,11 +316,14 @@ export function buildSubtitleTextElement({
 	return {
 		...DEFAULTS.text.element,
 		name: `Caption ${index + 1}`,
+		caption: makeCaption(caption.text, caption.duration),
 		duration: mediaTimeFromSeconds({ seconds: caption.duration }),
 		startTime: mediaTimeFromSeconds({ seconds: caption.startTime }),
 		params: {
 			...DEFAULTS.text.element.params,
-			content,
+			content: caption.text,
+			"caption.maxWidth": maxWidth,
+			"caption.noOrphan": true,
 			fontSize: style.fontSize,
 			fontFamily: style.fontFamily,
 			color: style.color,

@@ -9,6 +9,7 @@ import {
 	setCanvasLetterSpacing,
 } from "./layout";
 import { FONT_SIZE_SCALE_REFERENCE } from "./typography";
+import { captionTokens, wrapCaptionWords } from "./caption";
 
 export type TextAlign = "left" | "center" | "right";
 export type TextFontWeight = "normal" | "bold";
@@ -25,6 +26,7 @@ export interface TextLayoutParams {
 	textDecoration?: TextDecoration;
 	letterSpacing?: number;
 	lineHeight?: number;
+	caption?: { maxWidth: number; noOrphan: boolean; wordSpacing: number };
 }
 
 export interface ResolvedTextLayout {
@@ -41,6 +43,13 @@ export interface MeasuredTextLayout extends ResolvedTextLayout {
 	lines: string[];
 	lineMetrics: TextMetrics[];
 	block: TextBlockMeasurement;
+	wordRuns?: {
+		text: string;
+		index: number;
+		x: number;
+		y: number;
+		width: number;
+	}[];
 }
 
 export interface ResolvedTextBackgroundLike {
@@ -53,7 +62,11 @@ export interface ResolvedTextBackgroundLike {
 	cornerRadius: number;
 }
 
-export function quoteFontFamily({ fontFamily }: { fontFamily: string }): string {
+export function quoteFontFamily({
+	fontFamily,
+}: {
+	fontFamily: string;
+}): string {
 	return `"${fontFamily.replace(/"/g, '\\"')}"`;
 }
 
@@ -113,15 +126,56 @@ export function measureTextLayout({
 	ctx: TextCanvasContext;
 }): MeasuredTextLayout {
 	const resolvedLayout = resolveTextLayout({ text, canvasHeight });
-	const lines = text.content.split("\n");
+	let lines = text.content.split("\n");
 
 	ctx.save();
 	ctx.font = resolvedLayout.fontString;
 	ctx.textBaseline = "middle";
+	ctx.textAlign = "left";
 	setCanvasLetterSpacing({
 		ctx,
 		letterSpacingPx: resolvedLayout.letterSpacing,
 	});
+	let wordRuns: MeasuredTextLayout["wordRuns"];
+	let lineWidths: number[] | undefined;
+	if (text.caption) {
+		const tokens = captionTokens(text.content);
+		const extraSpace = text.caption.wordSpacing * resolvedLayout.scaledFontSize;
+		const wrapped = wrapCaptionWords(
+			text.content,
+			text.caption.maxWidth,
+			text.caption.noOrphan,
+			(word) => ctx.measureText(word).width,
+			extraSpace,
+		);
+		lines = wrapped.map((line) => line.map((index) => tokens[index]).join(" "));
+		wordRuns = [];
+		lineWidths = [];
+		const gap = ctx.measureText(" ").width + extraSpace;
+		wrapped.forEach((line, row) => {
+			const widths = line.map((index) => ctx.measureText(tokens[index]).width);
+			const width =
+				widths.reduce((sum, value) => sum + value, 0) +
+				Math.max(0, line.length - 1) * gap;
+			lineWidths!.push(width);
+			let x =
+				text.textAlign === "left"
+					? 0
+					: text.textAlign === "right"
+						? -width
+						: -width / 2;
+			line.forEach((index, column) => {
+				wordRuns!.push({
+					text: tokens[index],
+					index,
+					x,
+					y: (row - (wrapped.length - 1) / 2) * resolvedLayout.lineHeightPx,
+					width: widths[column],
+				});
+				x += widths[column] + gap;
+			});
+		});
+	}
 	const lineMetrics = lines.map((line) => ctx.measureText(line));
 	ctx.restore();
 
@@ -129,12 +183,14 @@ export function measureTextLayout({
 		lineMetrics,
 		lineHeightPx: resolvedLayout.lineHeightPx,
 	});
+	if (lineWidths) block.maxWidth = Math.max(0, ...lineWidths);
 
 	return {
 		...resolvedLayout,
 		lines,
 		lineMetrics,
 		block,
+		wordRuns,
 	};
 }
 
@@ -145,6 +201,7 @@ export function drawMeasuredTextLayout({
 	background,
 	backgroundColor,
 	textBaseline = "middle",
+	drawText = true,
 }: {
 	ctx: TextCanvasContext;
 	layout: MeasuredTextLayout;
@@ -152,6 +209,7 @@ export function drawMeasuredTextLayout({
 	background?: ResolvedTextBackgroundLike | null;
 	backgroundColor?: string;
 	textBaseline?: CanvasTextBaseline;
+	drawText?: boolean;
 }): void {
 	ctx.font = layout.fontString;
 	ctx.textAlign = layout.textAlign;
@@ -197,6 +255,7 @@ export function drawMeasuredTextLayout({
 		}
 	}
 
+	if (!drawText) return;
 	for (let index = 0; index < layout.lines.length; index++) {
 		const lineY = index * layout.lineHeightPx - layout.block.visualCenterOffset;
 		ctx.fillText(layout.lines[index], 0, lineY);

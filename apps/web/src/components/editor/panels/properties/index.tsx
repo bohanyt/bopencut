@@ -14,6 +14,7 @@ import { usePropertiesStore } from "./stores/properties-store";
 import { getPropertiesConfig } from "./registry";
 import { cn } from "@/utils/ui";
 import { EmptyView } from "./empty-view";
+import { CaptionProperties } from "@/text/components/caption-properties";
 
 export function PropertiesPanel() {
 	const editor = useEditor();
@@ -31,10 +32,12 @@ export function PropertiesPanel() {
 	}
 
 	if (selectedElements.length > 1) {
+		const text = editor.timeline.getElementsWithTracks({ elements: selectedElements }).find(({ element }) => element.type === "text");
 		return (
-			<div className="panel bg-background flex h-full flex-col items-center justify-center overflow-hidden rounded-sm border">
+			<div className="panel bg-background flex h-full flex-col overflow-auto rounded-sm border">
+				{text?.element.type === "text" && <CaptionProperties element={text.element} trackId={text.track.id} presetsOnly />}
 				<p className="text-muted-foreground text-sm">
-					{selectedElements.length} elements selected.0
+					{selectedElements.length} elements selected.
 				</p>
 			</div>
 		);

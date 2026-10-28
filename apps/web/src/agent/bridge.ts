@@ -11,6 +11,8 @@ import { type Draft, type DraftOp, computeAgentDraft } from "./draft";
 import { AgentDraftCommand } from "./draft-command";
 import { getRootScene, selectionInScene } from "./scene-graph";
 import { s, buildEditItems, buildSceneSnapshot } from "./snapshot";
+import { loadTextPresets } from "@/text/presets";
+import { resolveCaptionPreset } from "./captions";
 
 export type { Draft, DraftOp } from "./draft";
 
@@ -119,9 +121,12 @@ export async function applyDraft(draft: Draft) {
 	// Load icons and assets first (async), then change the timeline at once.
 	const media = new Map<AgentElement, LoadedMedia>();
 	const byPath = new Map<string, Promise<LoadedMedia>>();
+	let presets: ReturnType<typeof loadTextPresets> | undefined;
 	for (const [i, op] of ops.entries()) {
 		try {
+			if (op.op === "set" && op.caption?.preset) op.caption = resolveCaptionPreset(op.caption, await (presets ??= loadTextPresets()));
 			for (const e of elementsOf(op)) {
+				if (e.caption?.preset) e.caption = resolveCaptionPreset(e.caption, await (presets ??= loadTextPresets()));
 				if (e.icon) e.icon = { ...e.icon, svg: await loadIcon(e.icon.name) };
 				if (e.asset && typeof e.asset !== "string") {
 					const asset = e.asset;

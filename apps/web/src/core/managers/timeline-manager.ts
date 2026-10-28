@@ -1,4 +1,5 @@
 import type { EditorCore } from "@/core";
+import { reconcileCaptionEdit } from "@/text/caption";
 import type { ElementBounds } from "@/preview/element-bounds";
 import type { ParamValues } from "@/params";
 import type {
@@ -813,9 +814,13 @@ export class TimelineManager {
 
 			const nextElements = track.elements.map((element) => {
 				const overlay = this.previewOverlay.get(element.id);
-				return overlay
-					? ({ ...element, ...overlay } as TimelineElement)
-					: element;
+				if (!overlay) return element;
+				const next = { ...element, ...overlay } as TimelineElement;
+				return element.type === "text" &&
+					next.type === "text" &&
+					element.params.content !== next.params.content
+					? reconcileCaptionEdit(element, { ...next, caption: element.caption })
+					: next;
 			});
 
 			return { ...track, elements: nextElements } as TTrack;

@@ -6,6 +6,7 @@ import { mediaTimeFromSeconds } from "@/wasm";
 import { getGraphicDefinition } from "@/graphics";
 import type { ParamValues } from "@/params";
 import { generateUUID } from "@/utils/id";
+import { buildAgentCaption, type AgentCaption } from "./captions";
 
 export type AgentAsset = { path: string; type: "image" | "video" | "audio" | "model"; name: string };
 export type AgentElement = {
@@ -13,6 +14,7 @@ export type AgentElement = {
 	asset?: string | AgentAsset; model3d?: { params?: Record<string, number> }; effect?: string; effectParams?: Record<string, number>;
 	graphic?: { definitionId: string; params?: ParamValues }; icon?: { name: string; color?: string; svg?: string }; text?: string; group?: string;
 	params?: ParamValues; size?: [number, number];
+	caption?: AgentCaption;
 	keyframes?: { path: string; time: number; value: number }[];
 	/** Makes this element a compound clip holding these nested tracks (times relative to the clip's content). */
 	compound?: AgentCompoundContent;
@@ -52,6 +54,7 @@ export async function loadAgentAsset({ projectId, asset }: { projectId: string; 
 
 /** Track type an element goes on when the draft or bundle does not say. */
 export function inferTrackType(e: AgentElement, media?: LoadedMedia): AgentTrackType {
+	if (e.caption) return "text";
 	return media?.type === "audio" ? "audio" : e.effect ? "effect" : (e.graphic || e.icon) ? "graphic" : e.text !== undefined ? "text" : "video";
 }
 
@@ -71,6 +74,7 @@ export function buildAgentElement({ e, media, trackId, sceneId, canvas, keyframe
 	e: AgentElement; media?: LoadedMedia; trackId: string; sceneId?: string; canvas: { width: number; height: number }; keyframes: PendingKeyframe[];
 }): any {
 	const keyframes = { push: (k: PendingKeyframe) => collected.push(sceneId ? { ...k, sceneId } : k) };
+	if (e.caption) return buildAgentCaption({ e, trackId, sceneId, canvas, keyframes: collected });
 	if (e.effect) {
 		const el: any = { ...buildEffectElement({ effectType: e.effect, startTime: secs(e.start), duration: secs(e.duration) }), id: generateUUID(), agentId: e.agent_id };
 		el.name = e.name;

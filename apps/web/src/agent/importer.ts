@@ -9,6 +9,8 @@ import { loadIcon } from "@/stickers/providers/iconify";
 import { generateUUID } from "@/utils/id";
 import { type AgentAsset, type AgentElement, type LoadedMedia, buildAgentElement, createAgentTrack, loadAgentAsset } from "./elements";
 import { type BuildContext, applyAgentKeyframes, buildAgentCompound, walkAgentElements } from "./compound-content";
+import { loadTextPresets } from "@/text/presets";
+import { resolveCaptionPreset } from "./captions";
 
 export type Bundle = {
 	name: string; width: number; height: number;
@@ -58,7 +60,9 @@ export async function importAgentBundle({ onStatus }: { onStatus: (text: string)
 		media.set(a.key, await loadAgentAsset({ projectId, asset: a }));
 	}
 
+	let presets: ReturnType<typeof loadTextPresets> | undefined;
 	for (const e of walkAgentElements([...(bundle.main ?? []), ...(bundle.audio ?? []), ...(bundle.overlay ?? []).flatMap((t) => t.elements ?? [])])) {
+		if (e.caption?.preset) e.caption = resolveCaptionPreset(e.caption, await (presets ??= loadTextPresets()));
 		if (e.icon) e.icon.svg = await loadIcon(e.icon.name);
 	}
 

@@ -56,6 +56,55 @@ Graphic elements can use `graphic:{definitionId:"line"|"arrow"|"path"|"rectangle
 
 Add icons with `icon:{name:"lucide:server",color:"#ffffff"}` on a `graphic` track; icon data is fetched during import and its color can be changed in the editor.
 Add text with `text:"Text"` on a `text` track; text attributes can be set through `params`.
+
+### Native styled captions
+
+Use one text element per phrase on a normal `text` overlay track. A caption is a text element with a `caption` timing payload; text, transforms, effects, selection, copy/paste, and undo keep their normal behavior. The canonical editable text is `params.content`; snapshots also expose `caption:{text,words,approximate}`. No image assets are needed. Subtitle imports also create caption payloads with estimated word timings.
+
+In bundles and draft `add`, use `caption:{text,words?,preset?,style?,highlight?}` instead of `text`. Draft `set` accepts a partial `caption` object (for example, only `style` or `preset`). `words` is an ordered array of `{text,start,end,highlight?}`; times are seconds relative to the untrimmed element, intervals are half-open, and words must match the whitespace-separated text. Trimming or splitting advances the timing window using `trimStart`. Gaps are allowed; overlapping or out-of-range intervals are rejected. If omitted when creating a caption, words divide the duration evenly and are marked `approximate:true`.
+
+Editing text in the properties panel or through `set.params.content` preserves matching words in order (including their emphasis and timings). New or replaced word runs divide the available gap between retained words evenly and are marked approximate. If an insertion has no available gap, the whole phrase is redistributed. Punctuation and case edits preserve timings. Emphasis can be toggled per word in the text properties panel. Active-word color takes precedence over emphasis while that word is active.
+
+`style` uses the same flat parameter keys as `params`. All numeric controls below, including font size, letter spacing, and line height, are keyframable using their parameter names:
+
+- `stroke.inner.color`, `stroke.inner.width`, `stroke.outer.color`, `stroke.outer.width`: two round-join outline rings. Widths are outward radii in em (font-size multiples), not Canvas line widths; the outer radius should exceed the inner radius. Rendering order is outer, inner, fill across the whole phrase.
+- `stroke.inner.widthPx`, `stroke.outer.widthPx`: pixel aliases. A positive px value overrides em. Zero uses em unless the px parameter has a keyframe channel, in which case the animated px value (including zero) wins. Remove that channel to return to em.
+- `shadow.color`, `shadow.offsetX`, `shadow.offsetY`, `shadow.blur`, `shadow.opacity`: one shadow of the combined outlined text. Offsets and blur are project pixels; opacity is 0–1. Shadow opacity defaults to zero. Text transforms scale both strokes and shadows. Preview quality scales the complete result; export and agent frames remain full resolution.
+- `caption.maxWidth`: wrapping width in project pixels; zero disables automatic wrapping. Captions default to 80% of the canvas width. Explicit newlines are preserved. The limit measures glyph advances and spacing; rings and shadows can extend beyond it. A word wider than the limit is kept intact.
+- `caption.noOrphan`: move a word from the preceding line to avoid a final one-word line when the pair fits. Explicit paragraph breaks and the width limit take precedence.
+- `caption.wordSpacing`: additional space between words in em; `caption.highlightColor`: fill for words flagged `highlight:true`.
+- `caption.activeEnabled`, `caption.activeColor`, `caption.activeScale`: active-word fill and optional scale bump (1 = no bump). The bump is centered on the word and does not reflow lines. Active highlighting is off by default.
+
+The `highlight` shorthand is `{color,emphasisColor?,scale?,enabled?}`. It enables active highlighting unless `enabled:false`, uses `color` for the active word, defaults emphasis to that color, and defaults scale to 1. Precedence is element `params`, then preset style, then inline `style`, then `highlight`. Existing `fontSize` units remain unchanged: pixel font size = `fontSize * canvasHeight / 90`.
+
+**Presets.** In text properties, enter a name and choose **Save** to capture the style at the playhead. Choose a saved preset and **Apply to selected** to update all selected text/caption elements in one Undo step (also available with multiple elements selected). Applying a preset leaves text, timings, emphasis flags, and placement intact and replaces animation on the style properties supplied by the preset. Saving an existing name replaces that workspace preset. Presets are private JSON files in `AGENT_WORKSPACE/presets/*.json`, each `{ "name": "Readable", "style": { ... } }`. Names are case-sensitive; agents can create these files directly. `GET /api/agent/presets` lists them and `POST` saves one. A preset is resolved once during bundle/draft preparation and its values are copied into the element, so later changes to the preset do not change existing elements. Missing or invalid presets report an error. No presets or custom fonts are bundled with the repository; load custom fonts for the editing/export session before capturing frames.
+
+For example, after saving a preset named `Readable`, this draft creates two phrases on the same track and adjusts one phrase without replacing it:
+
+```json
+{
+  "schema": "opencut-agent-draft-1",
+  "rev": "captions-1",
+  "ops": [
+    {"op":"add","track":{"name":"Captions","type":"text"},"element":{
+      "agent_id":"phrase-1","name":"Caption 1","start":0,"duration":3,
+      "caption":{"text":"Keep text editable","preset":"Readable",
+        "words":[{"text":"Keep","start":0,"end":0.7},{"text":"text","start":0.7,"end":1.5,"highlight":true},{"text":"editable","start":1.5,"end":3}],
+        "highlight":{"color":"#ffcc00","scale":1.05}}
+    }},
+    {"op":"add","track":{"name":"Captions"},"element":{
+      "agent_id":"phrase-2","name":"Caption 2","start":3,"duration":3,
+      "caption":{"text":"One element per phrase","preset":"Readable"}
+    }},
+    {"op":"set","match":{"agentId":"phrase-2"},"caption":{
+      "text":"One editable element per phrase","style":{"caption.maxWidth":1000}
+    }}
+  ]
+}
+```
+
+For a bundle, put the same `element` objects in `overlay:[{name:"Captions",type:"text",elements:[...]}]`. Seventy phrases are seventy elements on one text track, not seventy tracks or one element per word.
+
 `group` is stored and reported as `groupId`. Click selects a group, double-click selects a member, and Ctrl+G / Ctrl+Shift+G groups or ungroups.
 
 Preview quality can be selected in the toolbar: Full, ½ (default), or ¼. The choice is stored in the browser and does not reduce export or agent frame quality.
