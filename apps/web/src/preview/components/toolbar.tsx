@@ -8,6 +8,7 @@ import { EditableTimecode } from "@/components/editable-timecode";
 import { Button } from "@/components/ui/button";
 import {
 	FullScreenIcon,
+	Layers01Icon,
 	PauseIcon,
 	PlayIcon,
 } from "@hugeicons/core-free-icons";
@@ -26,6 +27,7 @@ import { GridPopover } from "./guide-popover";
 import { usePreviewStore } from "@/preview/preview-store";
 import { isPreviewQuality } from "@/preview/quality";
 import type { MediaTime } from "@/wasm";
+import { TIMELINE_COMPOUND_THEME } from "@/timeline/components/theme";
 
 export function PreviewToolbar({
 	onToggleFullscreen,
@@ -34,7 +36,10 @@ export function PreviewToolbar({
 }) {
 	return (
 		<div className="grid grid-cols-[1fr_auto_1fr] items-center pb-3 pt-5 px-5">
-			<TimecodeDisplay />
+			<div className="flex min-w-0 items-center gap-3">
+				<TimecodeDisplay />
+				<CompoundSceneLabel />
+			</div>
 			<PlayPauseButton />
 			<div className="justify-self-end flex items-center gap-2.5">
 				<QualitySelect />
@@ -58,6 +63,26 @@ export function PreviewToolbar({
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+/** Name of the open compound clip, so the preview says what it is showing. */
+function CompoundSceneLabel() {
+	const scene = useEditor((e) => e.scenes.getActiveSceneOrNull());
+	if (scene?.kind !== "compound") return null;
+	return (
+		<span
+			className="flex min-w-0 items-center gap-1 text-xs"
+			title="Editing inside a compound clip"
+		>
+			<HugeiconsIcon
+				icon={Layers01Icon}
+				size={12}
+				className="shrink-0"
+				style={{ color: TIMELINE_COMPOUND_THEME.accentColor }}
+			/>
+			<span className="truncate">{scene.name}</span>
+		</span>
 	);
 }
 

@@ -126,6 +126,18 @@ export const ACTIONS = {
 		description: "Show/hide selected elements",
 		category: "selection",
 	},
+	"create-compound": {
+		description: "Create compound clip from selection",
+		category: "editing",
+	},
+	"break-apart-compound": {
+		description: "Break apart compound clip",
+		category: "editing",
+	},
+	"exit-compound": {
+		description: "Leave compound clip (back to parent)",
+		category: "navigation",
+	},
 	"toggle-bookmark": {
 		description: "Toggle bookmark at playhead",
 		category: "timeline",
@@ -186,6 +198,8 @@ const ACTION_DEFAULT_SHORTCUTS = [
 	["select-all", ["ctrl+a"]],
 	["cancel-interaction", ["escape"]],
 	["duplicate-selected", ["ctrl+d"]],
+	["create-compound", ["alt+g"]],
+	["break-apart-compound", ["alt+shift+g"]],
 	["undo", ["ctrl+z"]],
 	["redo", ["ctrl+shift+z", "ctrl+y"]],
 ] as const satisfies ReadonlyArray<

@@ -59,6 +59,7 @@ import {
 	RemoveEffectParamKeyframeCommand,
 	ToggleSourceAudioSeparationCommand,
 	CreateCompoundCommand,
+	RenameCompoundCommand,
 	UngroupCompoundCommand,
 } from "@/commands/timeline";
 import type { InsertElementParams } from "@/commands/timeline/element/insert-element";
@@ -225,6 +226,12 @@ export class TimelineManager {
 		const command = new UngroupCompoundCommand({ trackId, elementId });
 		this.editor.command.execute({ command });
 		return command.getElements();
+	}
+
+	/** Renames a compound clip's nested scene and every clip showing it (one undo step). */
+	renameCompound({ sceneId, name }: { sceneId: string; name: string }): void {
+		const command = new RenameCompoundCommand({ sceneId, name });
+		this.editor.command.execute({ command });
 	}
 
 	getTotalDuration(): MediaTime {

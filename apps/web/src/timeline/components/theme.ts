@@ -19,6 +19,12 @@ export const TIMELINE_TRACK_THEME: Record<
 	effect: { elementClassName: "bg-[#5d93ba]" },
 } as const;
 
+/** Compound clips look the same on video and audio tracks: amber, with a layers icon. */
+export const TIMELINE_COMPOUND_THEME = {
+	elementClassName: "bg-[#6E5226]",
+	accentColor: "#F0A830",
+} as const;
+
 export const SELECTED_TRACK_ROW_CLASS = "bg-accent/50";
 export const DEFAULT_TIMELINE_BOOKMARK_COLOR = "#009dff";
 

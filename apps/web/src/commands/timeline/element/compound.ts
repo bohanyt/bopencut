@@ -3,6 +3,7 @@ import { EditorCore } from "@/core";
 import type { ElementRef, TScene } from "@/timeline";
 import {
 	buildCompoundFromElements,
+	renameCompoundScene,
 	ungroupCompoundElement,
 } from "@/timeline/compound";
 
@@ -107,5 +108,25 @@ export class UngroupCompoundCommand extends ScenesChangeCommand {
 
 	getElements(): ElementRef[] {
 		return this.selection;
+	}
+}
+
+/** Renames the nested scene and every compound clip showing it. Keeps the current selection. */
+export class RenameCompoundCommand extends ScenesChangeCommand {
+	constructor(private params: { sceneId: string; name: string }) {
+		super();
+	}
+
+	override execute(): CommandResult | undefined {
+		super.execute();
+		return undefined;
+	}
+
+	protected compute({ scenes }: { scenes: TScene[]; hostSceneId: string }): TScene[] {
+		return renameCompoundScene({
+			scenes,
+			sceneId: this.params.sceneId,
+			name: this.params.name,
+		});
 	}
 }

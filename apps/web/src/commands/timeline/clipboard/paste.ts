@@ -4,7 +4,7 @@ import {
 	type CommandResult,
 } from "@/commands/base-command";
 import { EditorCore } from "@/core";
-import type { SceneTracks, TimelineElement } from "@/timeline";
+import type { SceneTracks, TScene, TimelineElement } from "@/timeline";
 import type { ElementClipboardItem } from "@/clipboard";
 import { generateUUID } from "@/utils/id";
 import {
@@ -13,6 +13,14 @@ import {
 	enforceMainTrackStart,
 } from "@/timeline/placement";
 import { cloneAnimations } from "@/animation";
+import {
+	collectCompoundScenes,
+	deepCopyCompoundElements,
+} from "@/timeline/compound";
+import {
+	applyCopiedScenes,
+	removeCopiedScenes,
+} from "@/commands/timeline/element/copied-scenes";
 import {
 	addMediaTime,
 	type MediaTime,
@@ -26,17 +34,24 @@ export class PasteCommand extends Command {
 	private pastedElements: { trackId: string; elementId: string }[] = [];
 	private readonly time: MediaTime;
 	private readonly clipboardItems: ElementClipboardItem[];
+	private readonly scenes: TScene[];
+	/** First result, replayed on redo so element, track, and nested scene ids stay the same. */
+	private result: { tracks: SceneTracks; scenes: TScene[] } | null = null;
 
 	constructor({
 		time,
 		clipboardItems,
+		scenes = [],
 	}: {
 		time: MediaTime;
 		clipboardItems: ElementClipboardItem[];
+		/** Nested scenes of copied compound clips (each paste deep-copies them). */
+		scenes?: TScene[];
 	}) {
 		super();
 		this.time = time;
 		this.clipboardItems = clipboardItems;
+		this.scenes = scenes;
 	}
 
 	execute(): CommandResult | undefined {
@@ -44,6 +59,12 @@ export class PasteCommand extends Command {
 
 		const editor = EditorCore.getInstance();
 		this.savedState = editor.scenes.getActiveScene().tracks;
+		if (this.result) {
+			applyCopiedScenes({ ...this.result });
+			return this.pastedElements.length > 0
+				? createElementSelectionResult(this.pastedElements)
+				: undefined;
+		}
 		this.pastedElements = [];
 
 		const minStart = this.clipboardItems.reduce(
@@ -58,12 +79,26 @@ export class PasteCommand extends Command {
 		const itemsByTrackId = groupClipboardItemsByTrackId({
 			clipboardItems: this.clipboardItems,
 		});
-
-		for (const [trackId, items] of itemsByTrackId) {
-			const elementsToAdd = buildPastedElements({
-				items,
+		// Pasted compound clips get their own copy of their nested scenes (one copy pass, so
+		// clips that shared a scene still share its copy).
+		const deepCopy = deepCopyCompoundElements({
+			elements: buildPastedElements({
+				items: this.clipboardItems,
 				minStart,
 				time: this.time,
+			}),
+			// The copy-time snapshot wins over the current scenes.
+			sourceScenes: [...editor.scenes.getScenes(), ...this.scenes],
+		});
+		const pastedByItem = new Map(
+			this.clipboardItems.map((item, index) => [item, deepCopy.elements[index]]),
+		);
+		const placed: TimelineElement[] = [];
+
+		for (const [trackId, items] of itemsByTrackId) {
+			const elementsToAdd = items.flatMap((item) => {
+				const element = pastedByItem.get(item);
+				return element ? [element] : [];
 			});
 
 			if (elementsToAdd.length === 0) {
@@ -135,6 +170,7 @@ export class PasteCommand extends Command {
 			}
 
 			updatedTracks = applied.updatedTracks;
+			placed.push(...elementsForPlacement);
 
 			for (const element of elementsForPlacement) {
 				this.pastedElements.push({
@@ -144,7 +180,12 @@ export class PasteCommand extends Command {
 			}
 		}
 
-		editor.timeline.updateTracks(updatedTracks);
+		const copiedScenes = collectCompoundScenes({
+			scenes: deepCopy.scenes,
+			elements: placed,
+		});
+		this.result = { tracks: updatedTracks, scenes: copiedScenes };
+		applyCopiedScenes({ ...this.result });
 
 		if (this.pastedElements.length > 0) {
 			return createElementSelectionResult(this.pastedElements);
@@ -154,8 +195,10 @@ export class PasteCommand extends Command {
 
 	undo(): void {
 		if (this.savedState) {
-			const editor = EditorCore.getInstance();
-			editor.timeline.updateTracks(this.savedState);
+			removeCopiedScenes({
+				tracks: this.savedState,
+				scenes: this.result?.scenes ?? [],
+			});
 		}
 	}
 

@@ -15,7 +15,7 @@ import { buildEmptyTrack } from "@/timeline/placement/track-factory";
 import { canPlaceTimeSpansOnTrack } from "@/timeline/placement/overlap";
 import { canElementHaveAudio, isRetimableElement } from "@/timeline/element-utils";
 import { canTrackHaveAudio } from "@/timeline/track-capabilities";
-import { splitAnimationsAtTime } from "@/animation";
+import { cloneAnimations, splitAnimationsAtTime } from "@/animation";
 import type { ElementAnimations, ScalarChannel } from "@/animation/types";
 import { getSourceSpanAtClipTime } from "@/retime";
 import {
@@ -39,6 +39,18 @@ export class CompoundCycleError extends Error {
 }
 
 export const DEFAULT_COMPOUND_NAME = "Compound clip";
+
+/** "Compound clip N" with N one above the highest number already used by a compound scene. */
+export function getNextCompoundName({ scenes }: { scenes: TScene[] }): string {
+	const pattern = new RegExp(`^${DEFAULT_COMPOUND_NAME} (\\d+)$`);
+	let highest = 0;
+	for (const scene of scenes) {
+		if (!isCompoundScene(scene)) continue;
+		const match = pattern.exec(scene.name);
+		if (match) highest = Math.max(highest, Number(match[1]));
+	}
+	return `${DEFAULT_COMPOUND_NAME} ${highest + 1}`;
+}
 
 export function isCompoundScene(scene: TScene): boolean {
 	return scene.kind === "compound";
@@ -314,7 +326,7 @@ export function buildCompoundFromElements({
 	scenes,
 	hostSceneId,
 	elements,
-	name = DEFAULT_COMPOUND_NAME,
+	name = getNextCompoundName({ scenes }),
 }: {
 	scenes: TScene[];
 	hostSceneId: string;
@@ -962,4 +974,188 @@ export function expandCompoundMainTrackMedia({
 			return clipped ? [shiftElement(clipped, offset)] : [];
 		});
 	});
+}
+
+// --- rename, copy ---
+
+/** Renames a compound's nested scene and every compound clip that shows it (they share one name). */
+export function renameCompoundScene({
+	scenes,
+	sceneId,
+	name,
+}: {
+	scenes: TScene[];
+	sceneId: string;
+	name: string;
+}): TScene[] {
+	const target = findScene(scenes, sceneId);
+	if (!target || !isCompoundScene(target)) {
+		throw new Error(`Compound scene not found: ${sceneId}`);
+	}
+	const renameTrack = <T extends TimelineTrack>(track: T): T =>
+		track.elements.some((element) => isCompoundElement(element) && element.sceneId === sceneId)
+			? ({
+					...track,
+					elements: track.elements.map((element) =>
+						isCompoundElement(element) && element.sceneId === sceneId
+							? { ...element, name }
+							: element,
+					),
+				} as T)
+			: track;
+	return scenes.map((scene) => {
+		const tracks: SceneTracks = {
+			overlay: scene.tracks.overlay.map(renameTrack),
+			main: renameTrack(scene.tracks.main),
+			audio: scene.tracks.audio.map(renameTrack),
+		};
+		const changed = getOrderedTracks(tracks).some(
+			(track, index) => track !== getOrderedTracks(scene.tracks)[index],
+		);
+		if (scene.id !== sceneId && !changed) return scene;
+		return {
+			...scene,
+			...(scene.id === sceneId ? { name } : {}),
+			tracks: changed ? tracks : scene.tracks,
+			updatedAt: new Date(),
+		};
+	});
+}
+
+/** The nested scenes that `elements` reach through compound clips, at any depth. */
+export function collectCompoundScenes({
+	scenes,
+	elements,
+}: {
+	scenes: TScene[];
+	elements: TimelineElement[];
+}): TScene[] {
+	const byId = new Map(scenes.map((scene) => [scene.id, scene]));
+	const found = new Map<string, TScene>();
+	const pending = elements.filter(isCompoundElement).map((element) => element.sceneId);
+	while (pending.length > 0) {
+		const sceneId = pending.pop() as string;
+		const scene = byId.get(sceneId);
+		if (!scene || found.has(sceneId)) continue;
+		found.set(sceneId, scene);
+		pending.push(...getReferencedSceneIds(scene.tracks));
+	}
+	return [...found.values()];
+}
+
+/** Elements made by the agent carry its id for them (an untyped field the agent bridge adds). */
+type WithAgentId = { agentId?: unknown };
+
+/**
+ * Copy identity policy: duplicates and pastes never inherit the agent's id, so an agentId always
+ * names one element (the agent addresses copies by element id).
+ */
+function withoutAgentId<E extends TimelineElement>(element: E): E {
+	if (!("agentId" in element)) return element;
+	const copy: E & WithAgentId = { ...element };
+	delete copy.agentId;
+	return copy;
+}
+
+/**
+ * Duplicate/paste policy: each copied compound clip gets its own deep copy of its nested scene
+ * (recursively, with fresh scene, track, element, and keyframe ids), so editing the copy never
+ * changes the original. Inside the copied graph every reference follows the copy: notes point at
+ * the copied elements, and a copied inner scene's origin points at its copied parent's tracks
+ * (a top-level copied scene keeps its outside host references). Clips copied together that
+ * shared a scene keep sharing its one copy. A top-level copied scene takes its clip's name.
+ * Copies never keep an agentId (top-level elements included). Ids of `elements` themselves are
+ * left to the caller. `sourceScenes` must hold every reached scene.
+ */
+export function deepCopyCompoundElements<T extends TimelineElement>({
+	elements,
+	sourceScenes,
+}: {
+	elements: T[];
+	sourceScenes: TScene[];
+}): { elements: T[]; scenes: TScene[] } {
+	const byId = new Map(sourceScenes.map((scene) => [scene.id, scene]));
+	const copies = new Map<string, TScene>();
+	// Old -> new track ids of every copied scene; origins are remapped once the graph is copied.
+	const trackIds = new Map<string, string>();
+
+	const copyScene = (sourceId: string): TScene => {
+		const existing = copies.get(sourceId);
+		if (existing) return existing;
+		const source = byId.get(sourceId);
+		if (!source) throw new Error(`Compound scene not found: ${sourceId}`);
+		const elementIds = new Map<string, string>();
+		const copyElement = <E extends TimelineElement>(element: E): E => {
+			const copy = withoutAgentId({
+				...element,
+				id: generateUUID(),
+				animations: cloneAnimations({
+					animations: element.animations,
+					shouldRegenerateKeyframeIds: true,
+				}),
+			});
+			elementIds.set(element.id, copy.id);
+			return isCompoundElement(copy)
+				? { ...copy, sceneId: copyScene(copy.sceneId).id }
+				: copy;
+		};
+		const copyTrack = <K extends TimelineTrack>(track: K): K => {
+			const id = generateUUID();
+			trackIds.set(track.id, id);
+			return { ...track, id, elements: track.elements.map(copyElement) } as K;
+		};
+		const now = new Date();
+		const tracks: SceneTracks = {
+			overlay: source.tracks.overlay.map(copyTrack),
+			main: copyTrack(source.tracks.main),
+			audio: source.tracks.audio.map(copyTrack),
+		};
+		const copy: TScene = {
+			...source,
+			id: generateUUID(),
+			isMain: false,
+			tracks,
+			bookmarks: source.bookmarks.map((bookmark) => ({
+				...bookmark,
+				...(bookmark.elementIds
+					? {
+							elementIds: bookmark.elementIds.map(
+								(elementId) => elementIds.get(elementId) ?? elementId,
+							),
+						}
+					: {}),
+			})),
+			createdAt: now,
+			updatedAt: now,
+		};
+		copies.set(sourceId, copy);
+		return copy;
+	};
+
+	const copiedElements = elements.map((element) => {
+		const copy = withoutAgentId(element);
+		if (!isCompoundElement(copy)) return copy;
+		const scene = copyScene(copy.sceneId);
+		copies.set(copy.sceneId, { ...scene, name: copy.name });
+		return { ...copy, sceneId: scene.id };
+	});
+
+	const remapTrack = (trackId: string) => trackIds.get(trackId) ?? trackId;
+	const scenes = [...copies.entries()].map(([sourceId, copy]) => {
+		const origin = byId.get(sourceId)?.compoundOrigin;
+		if (!origin) return copy;
+		return {
+			...copy,
+			compoundOrigin: {
+				hostTrackOrder: origin.hostTrackOrder.map(remapTrack),
+				trackSources: Object.fromEntries(
+					Object.entries(origin.trackSources).map(([nestedId, hostId]) => [
+						remapTrack(nestedId),
+						remapTrack(hostId),
+					]),
+				),
+			},
+		};
+	});
+	return { elements: copiedElements, scenes };
 }
