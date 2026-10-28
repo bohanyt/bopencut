@@ -8,6 +8,7 @@ import { Command } from "@/commands/base-command";
 import { UpsertKeyframeCommand } from "@/commands/timeline";
 import type { SceneTracks } from "@/timeline/types";
 import { generateUUID } from "@/utils/id";
+import { createEditLogger, type EditSnapshot } from "./edit-log";
 import { type AgentElement, type LoadedMedia, type PendingKeyframe, buildAgentElement, loadAgentAsset, secs } from "./elements";
 
 const s = (ticks: unknown) => (typeof ticks === "number" ? Math.round((ticks / TICKS_PER_SECOND) * 1000) / 1000 : ticks);
@@ -35,13 +36,36 @@ export function agentSnapshot() {
 	};
 }
 
+function animationSeconds(value: any): any {
+	if (Array.isArray(value)) return value.map(animationSeconds);
+	if (!value || typeof value !== "object") return value;
+	return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, key === "time" || key === "dt" ? s(entry) : animationSeconds(entry)]));
+}
+function editSnapshot(): EditSnapshot | null {
+	const editor = EditorCore.getInstance();
+	const project = editor.project.getActiveOrNull();
+	const scene = editor.scenes.getActiveSceneOrNull();
+	if (!project || !scene) return null;
+	const names = new Map(editor.media.getAssets().map((m) => [m.id, m.name]));
+	const tracks = [...scene.tracks.overlay, scene.tracks.main, ...scene.tracks.audio];
+	return { projectId: project.metadata.id, items: tracks.flatMap((track) => track.elements.map((e: any) => ({
+		id: e.id, agentId: e.agentId ?? null, name: e.name, media: names.get(e.mediaId) ?? null, type: e.type, track: track.name,
+		startTime: s(e.startTime) as number, duration: s(e.duration) as number, trimStart: s(e.trimStart) as number, trimEnd: s(e.trimEnd) as number,
+		params: structuredClone(e.params ?? {}), animations: animationSeconds(e.animations ?? {}),
+	}))) };
+}
+let editLogger: ReturnType<typeof createEditLogger> | undefined;
 let installed = false;
 export function installAgentBridge() {
 	if (installed || typeof window === "undefined") return;
 	installed = true;
 	const editor = EditorCore.getInstance();
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	editLogger = createEditLogger(editSnapshot, () => editor.timeline.isPreviewActive(), (lines) => {
+		fetch("/api/agent/edits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(lines) }).catch(() => {});
+	});
 	const push = () => {
+		editLogger?.changed();
 		clearTimeout(timer);
 		timer = setTimeout(() => {
 			const snap = agentSnapshot();
@@ -193,7 +217,13 @@ export async function applyDraft(draft: Draft) {
 	for (const k of keyframes) {
 		commands.push(new UpsertKeyframeCommand({ trackId: k.trackId, elementId: k.elementId, propertyPath: k.propertyPath, time: secs(k.time), value: k.value, interpolation: "linear" }));
 	}
-	editor.command.execute({ command: commands.length === 1 ? commands[0] : new BatchCommand(commands) });
+	const batch = new BatchCommand(commands);
+	const command = new class extends Command {
+		execute() { let result: ReturnType<BatchCommand["execute"]>; editLogger ? editLogger.agent(() => { result = batch.execute(); }) : (result = batch.execute()); return result!; }
+		undo() { editLogger ? editLogger.agent(() => batch.undo()) : batch.undo(); }
+		redo() { let result: ReturnType<BatchCommand["redo"]>; editLogger ? editLogger.agent(() => { result = batch.redo(); }) : (result = batch.redo()); return result!; }
+	}();
+	editor.command.execute({ command });
 	// Item yang barusan diubah/ditambah agen langsung terpilih, supaya terlihat di timeline.
 	if (touched.length) editor.selection.setSelectedElements({ elements: touched });
 

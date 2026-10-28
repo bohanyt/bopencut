@@ -56,6 +56,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 		await writeAtomic(path.join(WORKSPACE, "project.json"), text);
 		return Response.json({ ok: true });
 	}
+	if (slug[0] === "edits") {
+		const lines = await req.json();
+		if (!Array.isArray(lines) || !lines.length || lines.some((line) => typeof line.projectId !== "string" || !/^[a-zA-Z0-9-]+$/.test(line.projectId) || line.projectId !== lines[0].projectId || line.actor !== "user")) return Response.json({ error: "Log tidak valid" }, { status: 400 });
+		const dir = path.join(WORKSPACE, "edits");
+		await fs.mkdir(dir, { recursive: true });
+		await fs.appendFile(path.join(dir, `${lines[0].projectId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+		return Response.json({ ok: true });
+	}
 	if (slug[0] === "applied") {
 		await writeAtomic(path.join(WORKSPACE, "draft-result.json"), JSON.stringify(await req.json(), null, 1));
 		return Response.json({ ok: true });
