@@ -21,7 +21,7 @@ export async function pollFrames() {
 			if (!snapshot.success) throw new Error(snapshot.error);
 			const image = await createImageBitmap(snapshot.blob);
 			const canvas = document.createElement("canvas");
-			canvas.width = request.width ?? image.width;
+			canvas.width = request.width ?? 960;
 			canvas.height = Math.max(1, Math.round(canvas.width * image.height / image.width));
 			const context = canvas.getContext("2d");
 			if (!context) throw new Error("Kanvas tidak tersedia");
