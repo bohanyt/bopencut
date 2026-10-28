@@ -41,11 +41,15 @@ Buka `http://127.0.0.1:3000/projects`.
 
 `workspace/` tidak masuk Git. Kalau memakai folder lain, pastikan folder itu juga tidak dikomit. Data lama yang masih tersimpan di browser disalin otomatis ke folder saat pertama dibuka, tanpa menghapus aslinya.
 
+## Memakai bopencut dengan AI lokal
+
+Jalankan bopencut, lalu buka AI lokalmu (agen coding di terminal atau editor) di folder repo ini dan minta: **"baca `AGENTS.md`, lalu bantu aku mengerjakan video ini"**. `AGENTS.md` menjelaskan ke AI bahwa bopencut adalah tempat mengedit video bersama, fitur apa saja yang tersedia, dan bahwa kamu mengecek hasilnya lewat preview tanpa perlu render. Taruh footage dan asetmu di folder terpisah, lalu arahkan `AGENT_FILES_ROOT` ke sana.
+
 ## Dokumen
 
 - [GOAL.md](GOAL.md): tujuan, alur kerja, dan tahapan.
 - [AGENT.md](AGENT.md): protokol folder kerja agen (format bundle, draf, catatan, frame, selera).
-- [AGENTS.md](AGENTS.md): aturan untuk agen yang mengubah kode repo ini.
+- [AGENTS.md](AGENTS.md): titik masuk untuk AI (cara kerja di bopencut, dan aturan kalau mengubah kodenya).
 
 ## Lisensi
 
