@@ -33,6 +33,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Repo publik: tolak atribusi AI dan path pribadi di file maupun pesan commit PR.
+      - name: Cek kebersihan repo publik
+        run: |
+          pola='co-authored-by|claude|anthropic|[A-Za-z]:[\/]Users[\/]'
+          if git grep -nIiE "$pola" -- . ':!bun.lock' ':!.github/workflows'; then
+            echo "::error::Ada atribusi AI atau path pribadi di file repo"; exit 1
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if git log --format=%B "origin/${{ github.base_ref }}..HEAD" | grep -iE "$pola"; then
+              echo "::error::Ada atribusi AI atau path pribadi di pesan commit"; exit 1
+            fi
+          fi
 
       - name: Install Bun
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
