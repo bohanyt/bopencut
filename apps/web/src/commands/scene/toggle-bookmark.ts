@@ -6,11 +6,15 @@ import {
 	getFrameTime,
 	toggleBookmarkInArray,
 } from "@/timeline/bookmarks/index";
+import { generateUUID } from "@/utils/id";
 import { type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
 
 export class ToggleBookmarkCommand extends Command {
 	private savedScenes: TScene[] | null = null;
 	private frameTime: MediaTime = ZERO_MEDIA_TIME;
+	private readonly bookmarkId = generateUUID();
+	private readonly createdAt = new Date().toISOString();
+	private elementIds: string[] | null = null;
 
 	constructor(private time: MediaTime) {
 		super();
@@ -37,6 +41,12 @@ export class ToggleBookmarkCommand extends Command {
 			bookmarks: activeScene.bookmarks,
 			frameTime: this.frameTime,
 		});
+
+		const added = updatedBookmarks.find((b) => b.time === this.frameTime);
+		if (added && !activeScene.bookmarks.some((b) => b.time === this.frameTime)) {
+			this.elementIds ??= editor.selection.getSelectedElements().map((e) => e.elementId);
+			Object.assign(added, { id: this.bookmarkId, author: "user", resolved: false, createdAt: this.createdAt, elementIds: this.elementIds });
+		}
 
 		const updatedScenes = updateSceneInArray({
 			scenes,

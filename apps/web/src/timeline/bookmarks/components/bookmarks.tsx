@@ -12,6 +12,7 @@ import {
 	Delete02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { generateUUID } from "@/utils/id";
 import type { Bookmark } from "@/timeline";
 import {
 	Popover,
@@ -154,7 +155,7 @@ function TimelineBookmark({
 	const left = timelineTimeToSnappedPixels({ time: displayTime, zoomLevel });
 	const bookmarkLeft = left - BOOKMARK_HALF_WIDTH_PX;
 	const rightHalfLeft = BOOKMARK_HALF_WIDTH_PX + Math.max(durationWidth, 0);
-	const iconColor = bookmark.color ?? DEFAULT_TIMELINE_BOOKMARK_COLOR;
+	const iconColor = bookmark.resolved ? "#888888" : bookmark.color ?? (bookmark.author === "agent" ? "#e88b35" : DEFAULT_TIMELINE_BOOKMARK_COLOR);
 
 	const handleSeek = () => seekToBookmarkTime({ editor, time });
 
@@ -189,7 +190,7 @@ function TimelineBookmark({
 						left: `${bookmarkLeft}px`,
 						width: `${bookmarkWidth}px`,
 					}}
-					aria-label={`Bookmark at ${formatNumberForDisplay({ value: mediaTimeToSeconds({ time }), fractionDigits: 1 })}s`}
+					aria-label={`${bookmark.author === "agent" ? "Agent note" : "Bookmark"} at ${formatNumberForDisplay({ value: mediaTimeToSeconds({ time }), fractionDigits: 1 })}s`}
 					type="button"
 					onMouseDown={handleMouseDown}
 					onClick={handleClick}
@@ -323,7 +324,10 @@ function BookmarkPopoverContent({
 		duration,
 	}: Partial<Omit<Bookmark, "time">>) => {
 		const updates: Partial<Omit<Bookmark, "time">> = {};
-		if (note !== undefined && note !== bookmark.note) updates.note = note;
+		if (note !== undefined && note !== bookmark.note) {
+			updates.note = note;
+			if (!bookmark.id) { updates.id = generateUUID(); updates.author = "user"; updates.createdAt = new Date().toISOString(); updates.resolved = false; }
+		}
 		if (
 			color !== undefined &&
 			color.toUpperCase() !== (bookmark.color ?? "").toUpperCase()
@@ -421,6 +425,9 @@ function BookmarkPopoverContent({
 					/>
 				</div>
 			</div>
+			{bookmark.replies?.map((reply) => <div key={reply.id} className="text-xs"><strong>{reply.author === "agent" ? "Agent" : "User"}:</strong> {reply.text}</div>)}
+			{bookmark.note && <Button type="button" variant="outline" size="sm" onClick={() => editor.scenes.updateBookmark({ time, updates: { resolved: !bookmark.resolved } })}>{bookmark.resolved ? "Reopen" : "Resolve"}</Button>}
+			{bookmark.author === "agent" && <span className="text-xs">Agent</span>}
 			<Button
 				type="button"
 				variant="outline"

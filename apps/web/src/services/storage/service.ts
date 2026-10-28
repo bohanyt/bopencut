@@ -41,6 +41,12 @@ function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 			}
 			return {
 				time: roundMediaTime({ time: obj.time }),
+				...(typeof obj.id === "string" && { id: obj.id }),
+				...((obj.author === "user" || obj.author === "agent") && { author: obj.author }),
+				...(typeof obj.resolved === "boolean" && { resolved: obj.resolved }),
+				...(typeof obj.createdAt === "string" && { createdAt: obj.createdAt }),
+				...(Array.isArray(obj.replies) && { replies: obj.replies.filter((r): r is NonNullable<Bookmark["replies"]>[number] => !!r && typeof r.id === "string" && typeof r.text === "string" && (r.author === "user" || r.author === "agent") && typeof r.createdAt === "string") }),
+				...(Array.isArray(obj.elementIds) && { elementIds: obj.elementIds.filter((id): id is string => typeof id === "string") }),
 				...(typeof obj.note === "string" && { note: obj.note }),
 				...(typeof obj.color === "string" && { color: obj.color }),
 				...(typeof obj.duration === "number" && {
