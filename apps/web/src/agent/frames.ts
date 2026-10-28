@@ -1,5 +1,7 @@
 import { EditorCore } from "@/core";
-import { mediaTimeFromSeconds } from "@/wasm";
+import { calculateTotalDuration } from "@/timeline";
+import { lastFrameMediaTime, mediaTimeFromSeconds } from "@/wasm";
+import { getRootScene } from "./scene-graph";
 
 let busy = false;
 export async function pollFrames() {
@@ -15,9 +17,13 @@ export async function pollFrames() {
 		const files: string[] = [];
 		for (const time of request.times as number[]) {
 			if (editor.timeline.isPreviewActive() || editor.project.getActiveOrNull()?.metadata.id !== project.metadata.id) return;
+			// Frames show the root timeline (compound clips rendered with their content), also while the human is inside a compound.
+			const root = getRootScene(editor.scenes.getScenes(), editor.scenes.getActiveSceneOrNull()?.id ?? null);
+			if (!root) throw new Error("No scene");
 			const ticks = mediaTimeFromSeconds({ seconds: time });
-			if (ticks > editor.timeline.getLastFrameTime()) throw new Error(`Time outside timeline: ${time}`);
-			const snapshot = await editor.renderer.createSnapshot({ time: ticks });
+			const duration = calculateTotalDuration({ tracks: root.tracks });
+			if (ticks > lastFrameMediaTime({ duration, fps: project.settings.fps })) throw new Error(`Time outside timeline: ${time}`);
+			const snapshot = await editor.renderer.createSnapshot({ time: ticks, sceneId: root.id });
 			if (!snapshot.success) throw new Error(snapshot.error);
 			const image = await createImageBitmap(snapshot.blob);
 			const canvas = document.createElement("canvas");
