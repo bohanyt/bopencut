@@ -32,6 +32,14 @@ export abstract class Command {
 		return false;
 	}
 
+	/**
+	 * Why this command cannot be undone/redone right now (e.g. a scene it changed is gone), or
+	 * null. History refuses the step with this message and keeps itself as it is.
+	 */
+	getBlockedReason(_: { direction: "undo" | "redo" }): string | null {
+		return null;
+	}
+
 	undo(): void {
 		throw new Error("Undo not implemented for this command");
 	}

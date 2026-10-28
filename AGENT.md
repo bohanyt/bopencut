@@ -20,13 +20,13 @@ BOPENCUT_DATA can point outside the repository; do not commit private data. Use 
 | File in AGENT_WORKSPACE | Direction | Contents |
 |---|---|---|
 | `bundle/bundle.json` | agent → editor | complete draft; open **/agent** → *Import draft* = new project |
-| `project.json`, `sync/<projectId>.json` | editor → agent | current timeline after each edit (0.8 s debounce) |
+| `project.json`, `sync/<projectId>.json` | editor → agent | current timeline after each edit (0.8 s debounce), including the content of every compound clip (see *Compound clips for agents*) |
 | `draft.json` | agent → editor | per-item operations; applied in ~2 s as **one Undo step** |
 | `draft-result.json` | editor → agent | result per operation (items deleted by the human are skipped) |
 
 **bundle.json** (any `schema`): `name,width,height`, `assets:[{key,path(relative to AGENT_FILES_ROOT),type:image|video|audio,name}]`, `main:[el]`, `audio:[el]`, `overlay:[{name,type:"video"|"effect",elements:[el]}]` (index 0 = topmost). `el`: `agent_id,name,start,duration,trimStart` (seconds), `asset` or `effect`+`effectParams`, `params` (e.g. `transform.positionX/Y` = pixels from canvas center, `opacity`, `volume`), `size:[w,h]` (display size in pixels), `keyframes:[{path:"opacity"|"scale"|param,time,value}]`.
 
-**draft.json**: `{schema:"opencut-agent-draft-1", rev, label, projectId?, ops:[{op:"set", match:{agentId}|{id}, start?, duration?, trimStart?, params?}, {op:"delete", match:…}, {op:"add", track:{name, type?:"video"|"audio"|"effect", index?}, element:el}]}`. For `add`, `el.asset` is an object `{path,type,name}` (not a bundle key); an existing track with that name is reused, otherwise one is created (overlays are inserted at `index`). Exact names take precedence; `Main` and the legacy `Utama` are aliases in both directions. Existing saved track names are not renamed. The entire draft is one Undo; changed/added items are selected immediately.
+**draft.json**: `{schema:"opencut-agent-draft-1", rev, label, projectId?, ops:[{op:"set", match:{agentId}|{id}, start?, duration?, trimStart?, params?}, {op:"delete", match:…}, {op:"add", track:{name, type?:"video"|"audio"|"effect", index?}, element:el}]}`. For `add`, `el.asset` is an object `{path,type,name}` (not a bundle key); an existing track with that name is reused, otherwise one is created (overlays are inserted at `index`). Exact names take precedence; `Main` and the legacy `Utama` are aliases in both directions. Existing saved track names are not renamed. The entire draft is one Undo; changed/added items are selected immediately. `match` can also reach inside compound clips, and `group`, `ungroup`, and `compound` ops exist: see *Compound clips for agents*.
 
 Browser console: `window.agent.snapshot()`, `window.agent.applyDraft(draft)`.
 
@@ -47,7 +47,7 @@ Ruler bookmarks also serve as notes: press the bookmark button at the playhead (
 
 Add `{op:"note", text, start, end?, match?:[{agentId}|{id}]}`, `{op:"resolve-note", id}`, or `{op:"reply-note", id, text}` to draft `ops`. The result includes the note ID and status per operation in `draft-result.json`, and the whole draft remains one Undo. Because bookmarks use one position per frame, additions at an existing position are rejected and reported.
 
-Write `frames-request.json`: `{rev:"capture-1", times:[0,1,2], width:960}`. `rev` may contain only letters, digits, `_`, or `-`; times must be within the timeline. `width` is optional (default 960, maximum 4096; frames are always rendered at full resolution then scaled down); height follows the canvas aspect ratio. The active editor processes requests when no drag is in progress; `frames-result.json` contains `{rev,files:["frames/capture-1/0.jpg",...],projectId}` after all frames are saved. Use a new `rev` for each request.
+Write `frames-request.json`: `{rev:"capture-1", times:[0,1,2], width:960}`. `rev` may contain only letters, digits, `_`, or `-`; times must be within the timeline. `width` is optional (default 960, maximum 4096; frames are always rendered at full resolution then scaled down); height follows the canvas aspect ratio. Frames show the root timeline (see *Compound clips for agents*) with compound clips rendered from their content, also while the human has a compound open. The active editor processes requests when no drag is in progress; `frames-result.json` contains `{rev,files:["frames/capture-1/0.jpg",...],projectId}` after all frames are saved. Use a new `rev` for each request.
 
 ## 3D models
 Assets with `type:"model"` accept GLB or glTF with embedded resources. On an element, use `model3d:{params:{rotationY:0,modelScale:1,cameraDistance:3.5,cameraFov:45,lightIntensity:2,lightX:3,lightY:4,lightZ:5}}`; `rotationX/Y/Z` are in degrees. Numeric parameters can be animated through `keyframes` (e.g. `path:"rotationY"`). Transform and opacity work as for image elements.
@@ -90,3 +90,60 @@ Timeline UI:
 - Enter: double-click the clip (or context menu *Open compound clip*, or *Open* in the properties panel). The playhead lands on the same frame inside when it was over the clip. A breadcrumb above the timeline (`Main scene › Compound clip 2 › …`) shows where you are; click an ancestor to jump there. **Esc** first clears the selection, then goes back to the parent; the back arrow does the same. The preview toolbar shows the open compound's name. The scene picker never lists compound content; compounds are only entered from the timeline or breadcrumb.
 - Look: amber clip with a layers label. Video compounds show a strip of five low-res frames of the visible window, rendered off the playback path (only while paused, after edits settle; a strip that playback interrupts stops between frames and finishes later) and cached by content and project background, so an edit at any depth refreshes it and Undo reuses the old strip. Samples in an empty tail show the empty tail. Audio-only compounds show their nested clips as bars.
 - Properties: a *Compound clip* tab (name, Open, Break apart), Transform, Audio (volume in dB and mute for all nested audio; volume is not keyframable), Blending.
+
+## Compound clips for agents
+
+**Root timeline.** Snapshot `tracks` and `notes`, top-level draft ops, and frames all use the *root timeline*: the scene open in the editor, or, while the human is editing inside a compound clip, the user scene that contains it (the main scene first). The snapshot reports `sceneId` (the root) and `activeSceneId` (the scene open in the editor).
+
+**Addresses.** Every element lives in exactly one scene. Its address is `sceneId` + `id`, plus `path`: the ids of the compound clips from the root down to its scene (`[]` on the root). A scene shown by several clips (for example the two halves of a split) has one path per clip; `path` is the first one, depth first.
+
+**Snapshot.** The schema stays `opencut-agent-sync-1`; all changes are additive, so readers of `tracks` keep working.
+- `tracks`: the root timeline, same shape as before. Every element also has `sceneId`, `path`, and `visible`; a compound clip also has `compound:{sceneId, kind:"compound", volume, muted, sourceDuration}` (`volume` in dB, as in `params`).
+- `compounds`: the content of every compound clip reachable from the root, each scene once, depth first: `{sceneId, name, kind:"compound", duration, path, instances:[{path, compoundId, agentId, offset, visible:[{start,end}]}], tracks:[…same lane shape…]}`.
+- Times: `start`, `end`, `duration`, `trimStart`, and `trimEnd` are always **relative to the element's own scene** (inside a compound, 0 = the start of its content). `visible:[{start,end,path}]` is where the element really shows on the root timeline, through each enclosing clip's position and trim window, one entry per path; `[]` means an enclosing clip trims it out entirely. For a compound instance, root time = content time + `offset`, inside its `visible` window.
+
+```json
+{"sceneId":"main", "activeSceneId":"main",
+ "tracks":[{"group":"overlay", "name":"Motion graphics", "elements":[
+   {"id":"c1", "agentId":"scene-2", "type":"compound", "start":10, "end":15, "trimStart":2, "sceneId":"main", "path":[],
+    "visible":[{"start":10, "end":15, "path":[]}], "compound":{"sceneId":"s1", "kind":"compound", "volume":0, "muted":false, "sourceDuration":9}}]}],
+ "compounds":[{"sceneId":"s1", "path":["c1"], "duration":9,
+   "instances":[{"path":["c1"], "compoundId":"c1", "agentId":"scene-2", "offset":8, "visible":[{"start":10, "end":15}]}],
+   "tracks":[{"group":"overlay", "name":"Icons", "elements":[
+     {"id":"i1", "agentId":"icon-db", "start":3, "end":6, "sceneId":"s1", "path":["c1"], "visible":[{"start":11, "end":14, "path":["c1"]}]}]}]}]}
+```
+
+**Matching inside compounds.** In `set`, `delete`, `group`, `ungroup`, and note `match`:
+- `{agentId}` or `{id}` searches every scene reachable from the root. If the element is found in more than one scene, the op fails as ambiguous; narrow it with `sceneId` or `path`.
+- `{agentId|id, sceneId}` searches only that scene.
+- `{agentId|id, path:[…]}` searches the scene inside the last clip of `path`; entries are compound clip ids or their agentIds, from the root.
+- `id` wins over `agentId` when both are given.
+
+**Times in ops inside a compound are relative to that compound's content**, exactly as the snapshot reports them (`start`, `duration`, `trimStart`, keyframe times). The compound clip keeps its position and length when its content changes: added content becomes `trimEnd`, so extend the clip with a `set` `duration` if it should show more.
+
+**New ops.**
+- `add` into a compound: `{op:"add", track:{name, type?, index?, compound:{agentId}|{id}|{path}}, element:el}` adds to that clip's content (a bare `path` means the scene inside the last clip).
+- `{op:"compound", agent_id, name, start, duration?, trimStart?, track:{name, type?, index?, compound?}, params?, keyframes?, elements:[el + track:{name, type?, index?}], main?, overlay?, audio?}` builds a new compound clip from element definitions in one step, for example one clip per motion-graphics scene. Each element is placed like a draft `add` (each new track goes on top, so list elements from back to front); `main`/`overlay`/`audio` follow the bundle layout instead. An element with its own `compound` content becomes a nested compound clip. `duration` defaults to the content length; `track` defaults to `{name:"Compound clips"}`. Keyframes, icons, and assets work as in `add`.
+- `{op:"group", agent_id?, name?, match:[…]}` turns matched elements of one scene into a compound clip in that scene, as grouping in the UI does (the clip goes where the elements were, on a plain track).
+- `{op:"ungroup", match}` puts the visible part of a compound clip's content back in its scene.
+
+```json
+{"op":"compound", "agent_id":"mg-1", "name":"Data flow", "start":4, "track":{"name":"Motion graphics"}, "elements":[
+  {"agent_id":"icon-db", "name":"DB", "icon":{"name":"lucide:database"}, "start":0, "duration":4, "size":[160,160], "params":{"transform.positionX":-500}, "track":{"name":"Icons"}},
+  {"agent_id":"arrow-1", "name":"Arrow", "graphic":{"definitionId":"arrow"}, "start":0.5, "duration":3.5, "track":{"name":"Arrows"},
+   "keyframes":[{"path":"drawProgress", "time":0, "value":0}, {"path":"drawProgress", "time":0.6, "value":1}]},
+  {"agent_id":"whoosh-1", "name":"Whoosh", "asset":{"path":"sfx/whoosh.wav", "type":"audio", "name":"whoosh"}, "start":0.4, "duration":0.8, "track":{"name":"SFX"}}]}
+{"op":"set", "match":{"agentId":"icon-db"}, "start":0.2, "params":{"color":"#ffcc00"}}
+{"op":"add", "track":{"name":"Icons", "compound":{"agentId":"mg-1"}}, "element":{"agent_id":"icon-user", "name":"User", "icon":{"name":"lucide:user"}, "start":1, "duration":3}}
+{"op":"group", "agent_id":"captions-1", "name":"Captions", "match":[{"agentId":"cap-1"}, {"agentId":"cap-2"}]}
+```
+
+Compound clips go on video tracks (or on audio tracks if their content is audio only). A compound's audio (for example a whoosh inside a motion-graphics clip) plays only on an unmuted track: tracks the agent creates for compounds are unmuted, while video tracks created for footage stay muted as before.
+
+**Results.** Each entry in `draft-result.json` keeps its old fields and adds addresses `{sceneId, trackId, id, agentId, path}`: `element` for `add`/`set` (and `{sceneId,id}` for `delete`); `compound` + `sceneId` (the new content scene) + `elements` (the content) for `compound` and `group`; `elements` for `ungroup`. A failed op changes nothing and reports `error`; the rest of the draft still applies. The result also reports the root `sceneId`.
+
+**One Undo.** The whole draft is still one Undo step, even when it changes several scenes (the root and the content of several compound clips): Undo restores every scene the draft changed, removes the scenes it created, and brings back scenes it removed; Redo restores the draft result with the same ids. If a scene the draft changed disappeared outside history, the step is refused with a message and history stays as it is. The selection of changed items is part of the step, so Redo selects them again. Items changed inside a compound are shown by selecting the compound clip that contains them in the open scene.
+
+**Bundle.** In `bundle.json`, an element in `main`, a `video` overlay, or `audio` may carry `compound:{main?, overlay?, audio?, elements?}` with the same layout as the bundle itself (plus `elements` with a per-element `track`, as in the `compound` op); asset keys refer to the bundle's `assets`. `duration` may be omitted (= content length). Overlay tracks holding a compound are created unmuted.
+
+**Edit log.** Human edits anywhere under the root timeline, inside compound clips included, are logged with `sceneId` and `path`. Grouping or ungrouping moves an element to another scene with the same id and is logged as a `sceneId` change. A compound clip's `trimEnd` follows its content length and is not logged. Agent drafts (inside compounds too) and their Undo/Redo are not logged.

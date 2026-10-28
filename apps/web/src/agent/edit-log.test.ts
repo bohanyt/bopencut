@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createEditLogger, diffEdits, type EditSnapshot } from "./edit-log";
 import { summarizeEdits } from "./edits-summary";
-const item = { id: "e", agentId: "a", name: "Clip", media: null, type: "video", track: "Utama", startTime: 0, duration: 3, trimStart: 0, trimEnd: 0, params: { "transform.positionX": 0 }, animations: {} };
+const item = { id: "e", agentId: "a", name: "Clip", media: null, type: "video", track: "Utama", sceneId: "main", path: [] as string[], startTime: 0, duration: 3, trimStart: 0, trimEnd: 0, params: { "transform.positionX": 0 }, animations: {} };
 const snap = (startTime: number): EditSnapshot => ({ projectId: "p", items: [{ ...item, startTime }] });
 const wait = () => new Promise((resolve) => setTimeout(resolve, 900));
 describe("edit log", () => {

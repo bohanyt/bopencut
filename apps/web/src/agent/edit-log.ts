@@ -1,22 +1,37 @@
 // Diff completed snapshots, not every drag frame.
-export type EditItem = { id: string; agentId: string | null; name: string; media: string | null; type: string; track: string; startTime: number; duration: number; trimStart: number; trimEnd: number; params: Record<string, unknown>; animations: Record<string, unknown> };
+// Items cover every scene under the root timeline (compound clip contents included): `sceneId` +
+// `path` (compound clip ids from the root) say where an element is.
+export type EditItem = { id: string; agentId: string | null; name: string; media: string | null; type: string; track: string; sceneId: string; path: string[]; startTime: number; duration: number; trimStart: number; trimEnd: number; params: Record<string, unknown>; animations: Record<string, unknown> };
 export type EditSnapshot = { projectId: string; items: EditItem[] };
-export type EditLine = { t: string; projectId: string; actor: "user"; kind: "set" | "delete" | "add"; agentId: string | null; elementId: string; name: string; track: string; elementType: string; field: string; from: unknown; to: unknown };
+export type EditLine = { t: string; projectId: string; actor: "user"; kind: "set" | "delete" | "add"; agentId: string | null; elementId: string; name: string; track: string; sceneId: string; path: string[]; elementType: string; field: string; from: unknown; to: unknown };
+
+const keyOf = (item: EditItem) => `${item.sceneId}\u0000${item.id}`;
 
 export function diffEdits(before: EditSnapshot | null, after: EditSnapshot, t = new Date().toISOString()): EditLine[] {
 	if (!before || before.projectId !== after.projectId) return [];
-	const old = new Map(before.items.map((item) => [item.id, item]));
-	const next = new Map(after.items.map((item) => [item.id, item]));
+	const old = new Map(before.items.map((item) => [keyOf(item), item]));
+	const next = new Map(after.items.map((item) => [keyOf(item), item]));
+	// Grouping or ungrouping moves an element to another scene with the same id: one item, a `sceneId` change.
+	const gone = new Map(before.items.filter((item) => !next.has(keyOf(item))).map((item) => [item.id, item]));
+	const moved = new Map<string, EditItem>();
+	for (const item of after.items) {
+		const prev = old.has(keyOf(item)) ? undefined : gone.get(item.id);
+		if (prev) { moved.set(keyOf(item), prev); gone.delete(item.id); }
+	}
 	const lines: EditLine[] = [];
 	const add = (item: EditItem, kind: EditLine["kind"], field: string, from: unknown, to: unknown) => {
 		if (JSON.stringify(from) === JSON.stringify(to)) return;
-		lines.push({ t, projectId: after.projectId, actor: "user", kind, agentId: item.agentId, elementId: item.id, name: item.media ?? item.name, track: item.track, elementType: item.type, field, from: from ?? null, to: to ?? null });
+		lines.push({ t, projectId: after.projectId, actor: "user", kind, agentId: item.agentId, elementId: item.id, name: item.media ?? item.name, track: item.track, sceneId: item.sceneId, path: item.path, elementType: item.type, field, from: from ?? null, to: to ?? null });
 	};
-	for (const item of before.items) if (item.agentId && !next.has(item.id)) add(item, "delete", "element", { startTime: item.startTime, duration: item.duration }, null);
+	for (const item of gone.values()) if (item.agentId) add(item, "delete", "element", { startTime: item.startTime, duration: item.duration }, null);
 	for (const item of after.items) {
-		const prev = old.get(item.id);
+		const prev = old.get(keyOf(item)) ?? moved.get(keyOf(item));
 		if (!prev) { if (!item.agentId) add(item, "add", "element", null, { startTime: item.startTime, duration: item.duration }); continue; }
-		for (const field of ["startTime", "duration", "trimStart", "trimEnd", "track"] as const) add(item, "set", field, prev[field], item[field]);
+		for (const field of ["startTime", "duration", "trimStart", "trimEnd", "track", "sceneId"] as const) {
+			// A compound clip's trimEnd follows its content's length (see syncCompoundDurations), so it is not a human edit.
+			if (field === "trimEnd" && item.type === "compound") continue;
+			add(item, "set", field, prev[field], item[field]);
+		}
 		for (const key of new Set([...Object.keys(prev.params), ...Object.keys(item.params)])) add(item, "set", key, prev.params[key], item.params[key]);
 		for (const key of new Set([...Object.keys(prev.animations), ...Object.keys(item.animations)])) add(item, "set", `keyframes.${key}`, prev.animations[key], item.animations[key]);
 	}

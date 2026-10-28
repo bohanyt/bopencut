@@ -8,6 +8,8 @@ import { createTimelineAudioBuffer } from "@/media/audio";
 import { formatTimecode } from "opencut-wasm";
 import { frameRateToFloat } from "@/fps/utils";
 import { downloadBlob } from "@/utils/browser";
+import { calculateTotalDuration } from "@/timeline";
+import { lastFrameMediaTime } from "@/wasm";
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
@@ -78,7 +80,8 @@ export class RendererManager {
 		}
 	}
 
-	async createSnapshot({ time }: { time?: import("@/wasm").MediaTime } = {}): Promise<SnapshotResult> {
+	/** Renders the open scene at `time` (default: playhead), or another scene's timeline when `sceneId` is given. */
+	async createSnapshot({ time, sceneId }: { time?: import("@/wasm").MediaTime; sceneId?: string } = {}): Promise<SnapshotResult> {
 		try {
 			const activeProject = this.editor.project.getActive();
 
@@ -86,14 +89,22 @@ export class RendererManager {
 				return { success: false, error: "No project or scene to capture" };
 			}
 
-			const duration = this.editor.timeline.getTotalDuration();
+			const active = this.editor.scenes.getActiveScene();
+			const scene = sceneId ? this.editor.scenes.getScenes().find((s) => s.id === sceneId) : active;
+			if (!scene) {
+				return { success: false, error: "Scene not found" };
+			}
+			const isOpen = scene.id === active.id;
+			const duration = isOpen
+				? this.editor.timeline.getTotalDuration()
+				: calculateTotalDuration({ tracks: scene.tracks });
 			if (duration === 0) {
 				return { success: false, error: "Project is empty" };
 			}
 
 			const { canvasSize, fps } = activeProject.settings;
 			const renderTree = buildScene({
-				tracks: this.editor.timeline.getPreviewTracks() ?? this.editor.scenes.getActiveScene().tracks,
+				tracks: isOpen ? (this.editor.timeline.getPreviewTracks() ?? active.tracks) : scene.tracks,
 				mediaAssets: this.editor.media.getAssets(),
 				duration,
 				canvasSize,
@@ -102,7 +113,7 @@ export class RendererManager {
 			});
 			const renderTime = Math.min(
 				time ?? this.editor.playback.getCurrentTime(),
-				this.editor.timeline.getLastFrameTime(),
+				isOpen ? this.editor.timeline.getLastFrameTime() : lastFrameMediaTime({ duration, fps }),
 			);
 
 			const renderer = new CanvasRenderer({

@@ -127,6 +127,11 @@ export class CommandManager {
 		entry: CommandHistoryEntry;
 		direction: "undo" | "redo";
 	}): boolean {
+		const blocked = entry.command.getBlockedReason({ direction });
+		if (blocked) {
+			toast.error(blocked);
+			return false;
+		}
 		const { sceneId } = entry;
 		if (sceneId === null || sceneId === this.getActiveSceneId()) return true;
 		if (this.editor.scenes.getScenes().some((scene) => scene.id === sceneId)) {

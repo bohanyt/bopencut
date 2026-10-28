@@ -14,9 +14,25 @@ export type AgentElement = {
 	graphic?: { definitionId: string; params?: ParamValues }; icon?: { name: string; color?: string; svg?: string }; text?: string; group?: string;
 	params?: ParamValues; size?: [number, number];
 	keyframes?: { path: string; time: number; value: number }[];
+	/** Makes this element a compound clip holding these nested tracks (times relative to the clip's content). */
+	compound?: AgentCompoundContent;
+};
+export type AgentTrackType = "video" | "audio" | "effect" | "graphic" | "text";
+/** Where an element goes: a track by name (Main/Utama alias), created at `index` (0 = topmost overlay) if missing. */
+export type AgentTrackRef = { name: string; type?: AgentTrackType; index?: number };
+/**
+ * Nested tracks of a compound clip, bundle style (`main`, `overlay` with index 0 = topmost, `audio`)
+ * and/or draft style (`elements`, each with its own `track`, placed like a draft `add`).
+ */
+export type AgentCompoundContent = {
+	main?: AgentElement[];
+	overlay?: { name: string; type: "video" | "effect" | "graphic" | "text"; elements: AgentElement[] }[];
+	audio?: AgentElement[];
+	elements?: (AgentElement & { track: AgentTrackRef })[];
 };
 export type LoadedMedia = { id: string; type: AgentAsset["type"]; width?: number; height?: number; duration?: number };
-export type PendingKeyframe = { trackId: string; elementId: string; propertyPath: string; time: number; value: number };
+/** Keyframe to add once the element is placed; time in seconds, relative to the element. */
+export type PendingKeyframe = { sceneId?: string; trackId: string; elementId: string; propertyPath: string; time: number; value: number };
 
 export const secs = (seconds: number) => mediaTimeFromSeconds({ seconds });
 
@@ -34,10 +50,27 @@ export async function loadAgentAsset({ projectId, asset }: { projectId: string; 
 	return { id: saved.id, type: asset.type === "model" ? "model" : processed.type as AgentAsset["type"], width: processed.width, height: processed.height, duration: processed.duration };
 }
 
-/** Build an OpenCut element. Keyframes are collected in `keyframes` (time in seconds, relative to the element). */
-export function buildAgentElement({ e, media, trackId, canvas, keyframes }: {
-	e: AgentElement; media?: LoadedMedia; trackId: string; canvas: { width: number; height: number }; keyframes: PendingKeyframe[];
+/** Track type an element goes on when the draft or bundle does not say. */
+export function inferTrackType(e: AgentElement, media?: LoadedMedia): AgentTrackType {
+	return media?.type === "audio" ? "audio" : e.effect ? "effect" : (e.graphic || e.icon) ? "graphic" : e.text !== undefined ? "text" : "video";
+}
+
+/** Empty agent track. Video tracks for footage are muted (source audio stays off); compound hosts pass muted: false. */
+export function createAgentTrack(type: AgentTrackType, name: string, { muted = true }: { muted?: boolean } = {}): any {
+	if (type === "audio") return { id: generateUUID(), name, type, muted: false, elements: [] };
+	if (type === "effect") return { id: generateUUID(), name, type, hidden: false, elements: [] };
+	if (type === "graphic" || type === "text") return { id: generateUUID(), name, type, hidden: false, elements: [] };
+	return { id: generateUUID(), name, type, muted, hidden: false, elements: [] };
+}
+
+/**
+ * Build an OpenCut element (not a compound clip; see buildAgentNode). Keyframes are collected in
+ * `keyframes`, tagged with `sceneId` when given.
+ */
+export function buildAgentElement({ e, media, trackId, sceneId, canvas, keyframes: collected }: {
+	e: AgentElement; media?: LoadedMedia; trackId: string; sceneId?: string; canvas: { width: number; height: number }; keyframes: PendingKeyframe[];
 }): any {
+	const keyframes = { push: (k: PendingKeyframe) => collected.push(sceneId ? { ...k, sceneId } : k) };
 	if (e.effect) {
 		const el: any = { ...buildEffectElement({ effectType: e.effect, startTime: secs(e.start), duration: secs(e.duration) }), id: generateUUID(), agentId: e.agent_id };
 		el.name = e.name;
