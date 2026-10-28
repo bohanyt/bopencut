@@ -303,6 +303,8 @@ class StorageService {
 		const metadata: MediaAssetData = {
 			id: mediaAsset.id,
 			name: mediaAsset.name,
+			fileName: mediaAsset.file.name,
+			fileType: mediaAsset.file.type,
 			type: mediaAsset.type,
 			size: mediaAsset.file.size,
 			lastModified: mediaAsset.file.lastModified,
@@ -349,12 +351,15 @@ class StorageService {
 		const { mediaMetadataAdapter, mediaAssetsAdapter } =
 			this.getProjectMediaAdapters({ projectId });
 
-		const [file, metadata] = await Promise.all([
+		const [storedFile, metadata] = await Promise.all([
 			mediaAssetsAdapter.get(id),
 			mediaMetadataAdapter.get(id),
 		]);
 
-		if (!file || !metadata) return null;
+		if (!storedFile || !metadata) return null;
+		const file = metadata.fileName
+			? new File([storedFile], metadata.fileName, { type: metadata.fileType ?? "", lastModified: metadata.lastModified })
+			: storedFile;
 
 		let url: string;
 		if (metadata.type === "image" && (!file.type || file.type === "")) {

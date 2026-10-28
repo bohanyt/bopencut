@@ -27,6 +27,8 @@ import { ClipEffectsTab, StandaloneEffectTab } from "@/effects/components/effect
 import { MasksTab } from "@/masks/components/masks-tab";
 import { SpeedTab } from "@/speed/components/speed-tab";
 import { GraphicTab } from "@/graphics/components/graphic-tab";
+import { isModelFile } from "@/media/media-utils";
+import { model3dParams } from "@/params/registry";
 import { OcShapesIcon } from "@/components/icons";
 
 const TRANSFORM_PARAM_KEYS = [
@@ -257,13 +259,17 @@ function getVideoConfig({
 }
 
 function getImageConfig({
-	element,
+	element, mediaAsset,
 }: {
-	element: ImageElement;
+	element: ImageElement; mediaAsset?: MediaAsset;
 }): ElementPropertiesConfig {
 	return {
 		defaultTab: "transform",
 		tabs: [
+			...(mediaAsset && isModelFile(mediaAsset.file) ? [{
+				id: "model3d", label: "3D", icon: <OcShapesIcon size={16} />,
+				content: ({ trackId }: TabContentProps) => <ElementParamsTab element={element} trackId={trackId} paramKeys={model3dParams.map((p) => p.key)} sectionKey="model3d" />,
+			}] : []),
 			buildTransformTab({ element }),
 			buildBlendingTab({ element }),
 			buildMasksTab({ element }),
@@ -341,7 +347,7 @@ export function getPropertiesConfig({
 			return getVideoConfig({ element, mediaAsset });
 		}
 		case "image":
-			return getImageConfig({ element });
+			return getImageConfig({ element, mediaAsset: mediaAssets.find((a) => a.id === element.mediaId) });
 		case "sticker":
 			return getStickerConfig({ element });
 		case "graphic":

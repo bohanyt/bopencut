@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { getMediaTypeFromFile } from "@/media/media-utils";
+import { getMediaTypeFromFile, isModelFile } from "@/media/media-utils";
 import { formatStorageBytes } from "@/services/storage/quota";
 import { storageService } from "@/services/storage/service";
 import type { MediaAsset } from "@/media/types";
@@ -137,7 +137,11 @@ export async function processMediaAssets({
 		let hasAudio: boolean | undefined;
 
 		try {
-			if (fileType === "image") {
+			if (isModelFile(file)) {
+				width = 512;
+				height = 512;
+				thumbnailUrl = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" fill="#30343b"/><path d="M64 22 100 42v42L64 106 28 84V42Z M28 42l36 21 36-21M64 63v43" fill="none" stroke="#b7c5d5" stroke-width="4"/></svg>')}`;
+			} else if (fileType === "image") {
 				const result = await generateImageThumbnail({ imageFile: file });
 				thumbnailUrl = result.thumbnailUrl;
 				width = result.width;
