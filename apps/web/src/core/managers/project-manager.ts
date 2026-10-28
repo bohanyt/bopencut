@@ -20,6 +20,7 @@ import { buildScene } from "@/services/renderer/scene-builder";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { CURRENT_PROJECT_VERSION } from "@/services/storage/migrations";
 import { loadFonts } from "@/fonts/google-fonts";
+import { loadProjectFonts } from "@/fonts/project-fonts";
 import { DEFAULTS } from "@/timeline/defaults";
 import { getElementFontFamilies } from "@/timeline/element-utils";
 import { getRaisedProjectFpsForImportedMedia } from "@/fps/utils";
@@ -67,6 +68,7 @@ export class ProjectManager {
 	}
 
 	async createNewProject({ name }: { name: string }): Promise<string> {
+		await loadProjectFonts([]);
 		const mainScene = buildDefaultScene({ name: "Main scene", isMain: true });
 		const newProject: TProject = {
 			metadata: {
@@ -130,6 +132,7 @@ export class ProjectManager {
 			}
 
 			const project = result.project;
+			await loadProjectFonts(project.settings.fonts ?? []);
 
 			this.active = project;
 			this.notify();

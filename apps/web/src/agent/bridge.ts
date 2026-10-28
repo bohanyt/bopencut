@@ -2,7 +2,8 @@
 // so the agent can see each item's location, time, and position without opening the browser.
 import { EditorCore } from "@/core";
 import { toast } from "sonner";
-import { pollFrames } from "./frames";
+import { pollFrames, currentFrameRevision } from "./frames";
+import { normalizeDraftOps, withBoundsWarnings, type ProtocolDraft } from "./draft-adapter";
 import { loadIcon } from "@/stickers/providers/iconify";
 import { createEditLogger, type EditSnapshot } from "./edit-log";
 import { type AgentElement, type LoadedMedia, loadAgentAsset } from "./elements";
@@ -34,6 +35,7 @@ export function agentSnapshot() {
 	return {
 		schema: "opencut-agent-sync-1", projectId: project.metadata.id, projectName: project.metadata.name, savedAt: new Date().toISOString(),
 		canvas: project.settings.canvasSize, fps: project.settings.fps,
+		...currentFrameRevision(),
 		note: "Times are in seconds. transform.positionX/Y = pixels from the canvas center. Overlay index 0 = topmost. Inside compounds, start/end are relative to the compound's content; visible = intervals in the root timeline.",
 		sceneId: scene.id, activeSceneId: active.id,
 		notes: scene.bookmarks.filter((b) => b.note?.trim()).map((b) => ({ id: b.id ?? `legacy-${b.time}`, text: b.note, start: s(b.time), ...(b.duration ? { end: s(b.time + b.duration) } : {}), elementIds: b.elementIds ?? [], replies: b.replies ?? [], author: b.author ?? "user", resolved: b.resolved ?? false, createdAt: b.createdAt ?? null })),
@@ -108,12 +110,12 @@ function elementsOf(op: DraftOp): AgentElement[] {
 	return [];
 }
 
-export async function applyDraft(draft: Draft) {
+export async function applyDraft(draft: ProtocolDraft) {
 	const editor = EditorCore.getInstance();
 	const project = editor.project.getActiveOrNull();
 	const active = editor.scenes.getActiveSceneOrNull();
 	if (!project || !active || !agentRootScene()) return;
-	const ops: DraftOp[] = Array.isArray(draft.ops) ? structuredClone(draft.ops) : [];
+	const ops: DraftOp[] = Array.isArray(draft.ops) ? normalizeDraftOps(draft.ops) : [];
 	const results: any[] = [];
 
 	// Load icons and assets first (async), then change the timeline at once.
@@ -163,6 +165,6 @@ export async function applyDraft(draft: Draft) {
 	fetch("/api/agent/applied", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ rev: draft.rev, label: draft.label, appliedAt: new Date().toISOString(), projectId: project.metadata.id, sceneId: root.id, ...(error ? { ok: false, error } : {}), results: outcome.results }),
+		body: JSON.stringify({ rev: draft.rev, label: draft.label, appliedAt: new Date().toISOString(), projectId: project.metadata.id, sceneId: root.id, ...(error ? { ok: false, error } : {}), results: withBoundsWarnings(outcome.results, outcome.scenes, project.settings.canvasSize, editor.media.getAssets(), draft.ops) }),
 	}).catch(() => {});
 }

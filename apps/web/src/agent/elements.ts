@@ -6,13 +6,14 @@ import { mediaTimeFromSeconds } from "@/wasm";
 import { getGraphicDefinition } from "@/graphics";
 import type { ParamValues } from "@/params";
 import { generateUUID } from "@/utils/id";
+import { convertDesignUnits, mediaFitScale } from "./design-units";
 
 export type AgentAsset = { path: string; type: "image" | "video" | "audio" | "model"; name: string };
 export type AgentElement = {
 	agent_id?: string; name: string; start: number; duration: number; trimStart?: number;
 	asset?: string | AgentAsset; model3d?: { params?: Record<string, number> }; effect?: string; effectParams?: Record<string, number>;
 	graphic?: { definitionId: string; params?: ParamValues }; icon?: { name: string; color?: string; svg?: string }; text?: string; group?: string;
-	params?: ParamValues; size?: [number, number];
+	params?: ParamValues; size?: [number, number]; fit?: "contain" | "cover" | "width";
 	keyframes?: { path: string; time: number; value: number }[];
 	/** Makes this element a compound clip holding these nested tracks (times relative to the clip's content). */
 	compound?: AgentCompoundContent;
@@ -80,6 +81,7 @@ export function buildAgentElement({ e, media, trackId, sceneId, canvas, keyframe
 	if (e.text !== undefined) {
 		const el: any = { ...buildTextElement({ raw: { name: e.name, params: { content: e.text } }, startTime: secs(e.start) }), id: generateUUID(), agentId: e.agent_id, groupId: e.group, duration: secs(e.duration) };
 		Object.assign(el.params, e.params ?? {});
+		convertDesignUnits(el.params, canvas, "text");
 		for (const k of e.keyframes ?? []) {
 			const paths = k.path === "scale" ? ["transform.scaleX", "transform.scaleY"] : [k.path];
 			for (const propertyPath of paths) keyframes.push({ trackId, elementId: el.id, propertyPath, time: k.time, value: k.value });
@@ -99,6 +101,7 @@ export function buildAgentElement({ e, media, trackId, sceneId, canvas, keyframe
 			el.params["transform.scaleY"] = e.size[1] / baseSize;
 		}
 		Object.assign(el.params, e.params ?? {});
+		convertDesignUnits(el.params, canvas, e.graphic.definitionId);
 		for (const k of e.keyframes ?? []) {
 			const paths = k.path === "scale" ? ["transform.scaleX", "transform.scaleY"] : [definition.params.some((p) => p.key === k.path) ? `params.${k.path}` : k.path];
 			for (const propertyPath of paths) keyframes.push({ trackId, elementId: el.id, propertyPath, time: k.time, value: k.path === "scale" ? k.value * (el.params[propertyPath] as number) : k.value });
@@ -117,9 +120,9 @@ export function buildAgentElement({ e, media, trackId, sceneId, canvas, keyframe
 	}
 	if (media.type === "video") el.isSourceAudioEnabled = false;
 	let base = 1;
+	if (e.size && e.fit && e.fit !== "width" && (!media.width || !media.height)) throw new Error("contain/cover requires source dimensions");
 	if (e.size && media.width && media.height) {
-		const contain = Math.min(canvas.width / media.width, canvas.height / media.height);
-		base = e.size[0] / (media.width * contain);
+		base = mediaFitScale(e.size, { width: media.width, height: media.height }, canvas, e.fit);
 		el.params["transform.scaleX"] = base;
 		el.params["transform.scaleY"] = base;
 	}

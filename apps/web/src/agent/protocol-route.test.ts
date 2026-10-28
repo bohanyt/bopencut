@@ -1,0 +1,50 @@
+import { afterAll, expect, test } from "bun:test";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { writeAtomic } from "./workspace-files";
+
+await fs.mkdir("workspace", { recursive: true });
+const workspace = await fs.mkdtemp(path.resolve("workspace", "agent-route-test-"));
+const previous = { workspace: process.env.AGENT_WORKSPACE, files: process.env.AGENT_FILES_ROOT };
+process.env.AGENT_WORKSPACE = workspace;
+process.env.AGENT_FILES_ROOT = workspace;
+const { GET, POST } = await import("@/app/api/agent/[...slug]/route");
+if (previous.workspace === undefined) delete process.env.AGENT_WORKSPACE; else process.env.AGENT_WORKSPACE = previous.workspace;
+if (previous.files === undefined) delete process.env.AGENT_FILES_ROOT; else process.env.AGENT_FILES_ROOT = previous.files;
+afterAll(async () => { await fs.rm(workspace, { recursive: true, force: true }); });
+const params = (slug: string) => ({ params: Promise.resolve({ slug: [slug] }) });
+const get = (slug: string, query = "") => GET(new Request(`http://localhost/api/agent/${slug}${query}`), params(slug));
+const post = (slug: string, body: unknown) => POST(new Request(`http://localhost/api/agent/${slug}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }), params(slug));
+const write = (file: string, value: unknown) => writeAtomic(path.join(workspace, file), JSON.stringify(value));
+
+test("routes preserve legacy capture output and expose incremental frame errors", async () => {
+	await write("project.json", { projectId: "target" });
+	await write("frames-request.json", { rev: "route-legacy", times: [0, 1] });
+	expect(await (await get("frames-request", "?projectId=other")).json()).toBeNull();
+	expect(await (await get("frames-request", "?projectId=target")).json()).toMatchObject({ id: "route-legacy", projectId: "target" });
+	const { token } = await (await post("frames-claim", { id: "route-legacy", projectId: "target" })).json();
+	expect(token).toBeString();
+	const form = new FormData();
+	form.set("id", "route-legacy"); form.set("token", token); form.set("index", "0");
+	form.set("image", new File([new Uint8Array([255, 216, 255, 217])], "frame.jpg", { type: "image/jpeg" }));
+	expect((await POST(new Request("http://localhost/api/agent/frame", { method: "POST", body: form }), params("frame"))).ok).toBe(true);
+	expect(await (await get("frames-status", "?id=route-legacy")).json()).toMatchObject({ status: "running", done: 1, total: 2, files: ["frames/route-legacy/0.jpg"] });
+	expect((await post("frames-status", { id: "route-legacy", token: "wrong", status: "done" })).status).toBe(400);
+	await post("frames-status", { id: "route-legacy", token, index: 1, error: "Cannot decode" });
+	await post("frames-status", { id: "route-legacy", token, status: "error" });
+	const result = JSON.parse(await fs.readFile(path.join(workspace, "frames-result.json"), "utf8"));
+	expect(result).toMatchObject({ rev: "route-legacy", projectId: "target", status: "error", done: 2, errors: [{ index: 1, time: 1, error: "Cannot decode" }] });
+});
+test("bundle and import routes validate before queue consumers create a project", async () => {
+	await write("named/bundle.json", { name: "Named", width: 640, height: 360, assets: [] });
+	expect(await (await get("bundle", "?bundlePath=named")).json()).toMatchObject({ name: "Named" });
+	await write("imports/route-import.json", { bundlePath: "named/bundle.json" });
+	expect(await (await get("imports-request")).json()).toMatchObject({ id: "route-import" });
+	const { token } = await (await post("imports-claim", { id: "route-import" })).json();
+	expect((await post("imports-result", { id: "route-import", token, status: "done", projectId: "new-project", assets: [] })).ok).toBe(true);
+	expect(await (await get("imports-result", "?id=route-import")).json()).toMatchObject({ status: "done", projectId: "new-project" });
+	await write("named/bundle.json", { name: "Broken", width: 640, height: 360, assets: [{ key: "a", name: "Missing", type: "image", path: "absent.png" }] });
+	const invalid = await get("bundle", "?bundlePath=named");
+	expect(invalid.status).toBe(400);
+	expect(await invalid.json()).toMatchObject({ ok: false, assets: [{ key: "a", ok: false }] });
+});

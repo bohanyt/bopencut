@@ -27,6 +27,7 @@ export interface TProjectMetadata {
 }
 
 export interface TProjectSettings {
+	fonts?: import("@/fonts/project-fonts").ProjectFont[];
 	fps: FrameRate;
 	canvasSize: TCanvasSize;
 	canvasSizeMode?: "preset" | "custom";

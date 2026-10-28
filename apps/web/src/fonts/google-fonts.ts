@@ -1,4 +1,5 @@
 import type { FontAtlas } from "@/fonts/types";
+import { hasProjectFont } from "./project-fonts";
 import { SYSTEM_FONTS } from "@/fonts/system-fonts";
 
 const GOOGLE_FONTS_CSS = "https://fonts.googleapis.com/css2";
@@ -59,7 +60,7 @@ export async function loadFullFont({
 	family: string;
 	weights?: number[];
 }): Promise<void> {
-	if (fullLoaded.has(family)) return;
+	if (hasProjectFont(family) || fullLoaded.has(family)) return;
 
 	const url = `${GOOGLE_FONTS_CSS}?family=${encodeGoogleFontsFamily(family)}:wght@${weights.join(";")}&display=swap`;
 	const link = document.createElement("link");

@@ -19,14 +19,16 @@ BOPENCUT_DATA can point outside the repository; do not commit private data. Use 
 
 | File in AGENT_WORKSPACE | Direction | Contents |
 |---|---|---|
-| `bundle/bundle.json` | agent → editor | complete draft; open **/agent** → *Import draft* = new project |
+| `bundle/bundle.json` or a named bundle | agent → editor | complete draft; open **/agent?bundle=path&auto=1** or enqueue an import |
 | `project.json`, `sync/<projectId>.json` | editor → agent | current timeline after each edit (0.8 s debounce), including the content of every compound clip (see *Compound clips for agents*) |
 | `draft.json` | agent → editor | per-item operations; applied in ~2 s as **one Undo step** |
-| `draft-result.json` | editor → agent | result per operation (items deleted by the human are skipped) |
+| `draft-result.json` | editor → agent | result per operation, including bounds warnings |
+| `imports/<id>.json` / `<id>.result.json` | agent ↔ editor | import queue and result with projectId and asset results |
+| `frames/requests/<id>.json` / `frames/<id>/status.json` | agent ↔ editor | project-scoped captures and incremental status |
 
-**bundle.json** (any `schema`): `name,width,height`, `assets:[{key,path(relative to AGENT_FILES_ROOT),type:image|video|audio,name}]`, `main:[el]`, `audio:[el]`, `overlay:[{name,type:"video"|"effect",elements:[el]}]` (index 0 = topmost). `el`: `agent_id,name,start,duration,trimStart` (seconds), `asset` or `effect`+`effectParams`, `params` (e.g. `transform.positionX/Y` = pixels from canvas center, `opacity`, `volume`), `size:[w,h]` (display size in pixels), `keyframes:[{path:"opacity"|"scale"|param,time,value}]`.
+**bundle.json** (any `schema`): `name,width,height`, `assets:[{key,path(relative to AGENT_FILES_ROOT),type:image|video|audio,name}]`, `main:[el]`, `audio:[el]`, `overlay:[{name,type:"video"|"effect",elements:[el]}]` (index 0 = topmost). `el`: `agent_id,name,start,duration,trimStart` (seconds), `asset` or `effect`+`effectParams`, `params` (e.g. `transform.positionX/Y` = pixels from canvas center, `opacity`, `volume`), `size:[w,h]`, `fit:"width"|"contain"|"cover"` (see *Size and design units*), `keyframes:[{path:"opacity"|"scale"|param,time,value}]`.
 
-**draft.json**: `{schema:"opencut-agent-draft-1", rev, label, projectId?, ops:[{op:"set", match:{agentId}|{id}, start?, duration?, trimStart?, params?}, {op:"delete", match:…}, {op:"add", track:{name, type?:"video"|"audio"|"effect", index?}, element:el}]}`. For `add`, `el.asset` is an object `{path,type,name}` (not a bundle key); an existing track with that name is reused, otherwise one is created (overlays are inserted at `index`). Exact names take precedence; `Main`, the legacy `Utama`, and the editor default `Main Track` are aliases of each other (so `Main` reaches the main track of a compound made in the editor). Existing saved track names are not renamed. The entire draft is one Undo; changed/added items are selected immediately. `match` can also reach inside compound clips, and `group`, `ungroup`, and `compound` ops exist: see *Compound clips for agents*.
+**draft.json**: `{schema:"opencut-agent-draft-1", rev, label, projectId?, ops:[{op:"set", match:{agentId}|{id}, start?, duration?, trimStart?, params?}, {op:"delete", match:…}, {op:"add", track:{name, type?:"video"|"audio"|"effect", index?}, element:el}]}`. For `add`, `el.asset` is an object `{path,type,name}` (not a bundle key); an existing track with that name is reused, otherwise one is created (overlays are inserted at `index`). Exact names take precedence; `Main`, the legacy `Utama`, and the editor default `Main Track` are aliases of each other (so `Main` reaches the main track of a compound made in the editor). Existing saved track names are not renamed. The entire draft is one Undo; changed/added items are selected immediately. `match` can also reach inside compound clips, and `make-compound`, `ungroup`, and `compound` ops exist: see *Compound clips for agents*.
 
 Browser console: `window.agent.snapshot()`, `window.agent.applyDraft(draft)`.
 
@@ -47,7 +49,73 @@ Ruler bookmarks also serve as notes: press the bookmark button at the playhead (
 
 Add `{op:"note", text, start, end?, match?:[{agentId}|{id}]}`, `{op:"resolve-note", id}`, or `{op:"reply-note", id, text}` to draft `ops`. The result includes the note ID and status per operation in `draft-result.json`, and the whole draft remains one Undo. Because bookmarks use one position per frame, additions at an existing position are rejected and reported.
 
-Write `frames-request.json`: `{rev:"capture-1", times:[0,1,2], width:960}`. `rev` may contain only letters, digits, `_`, or `-`; times must be within the timeline. `width` is optional (default 960, maximum 4096; frames are always rendered at full resolution then scaled down); height follows the canvas aspect ratio. Frames show the root timeline (see *Compound clips for agents*) with compound clips rendered from their content, also while the human has a compound open. The active editor processes requests when no drag is in progress; `frames-result.json` contains `{rev,files:["frames/capture-1/0.jpg",...],projectId}` after all frames are saved. Use a new `rev` for each request.
+### Frames v2
+
+Write an immutable JSON file to `frames/requests/<id>.json` (IDs: 1-100 letters, digits, `_`, or `-`). Publish requests atomically by writing a temporary file and renaming it. Use a fresh ID for each request:
+
+```json
+{"projectId":"project-id","snapshotHash":"timeline-...","times":[0,1,2],"width":960}
+```
+
+`projectId` is required. Copy `snapshotHash` or `rev` from `window.agent.snapshot()`, `project.json`, or `sync/<projectId>.json`; these two fields contain the same deterministic timeline fingerprint. On v2 requests, `rev` means the **expected timeline**, not the request ID. Either expectation is optional; if both are supplied, both must match. The fingerprint includes root and reachable compound tracks, keyframes, and project settings; changing the open compound or save timestamps does not change it. It is a change detector, not a cryptographic integrity guarantee.
+
+The matching project's editor processes its requests in file modification-time order (filename breaks ties). Different projects can capture concurrently. Server claims prevent two tabs from processing one request. `frames/<id>/status.json` appears on discovery, then updates after every frame:
+
+```json
+{"id":"capture-01","projectId":"project-id","status":"running","done":1,"total":3,
+ "snapshotHash":"timeline-...","files":["frames/capture-01/0.jpg"],"errors":[]}
+```
+
+`status` is `queued`, `running`, `done`, `error`, or `stale`. `done` counts attempted frames, including errors; `total` is the requested count. Files are listed only after writing, in request order, and use the frame index so repeated times remain distinct. Errors carry `{index,time,error}`; one render failure does not prevent later frames. A changed expected timeline is refused as `stale`. Captures also check the timeline before and after each render, even without an expectation; a mid-batch edit ends the request as `stale`. Partial files remain for diagnosis; only a `done` result represents a complete, consistent capture.
+
+`times` are finite nonnegative seconds within the timeline. `width` defaults to 960 (integer 1-4096); rendering uses full resolution before downscaling. Captures show the root timeline, including nested compound content. Requests wait while a drag is active; a drag starting during capture is reported as an error. Polling requires an open editor. Status can also be read at `GET /api/agent/frames-status?id=<id>`.
+
+**Legacy single-file requests:** `frames-request.json` still accepts `{rev:"capture-1",times:[0,1,2],width:960}`. Without `projectId`, it is assigned once to the project in the **last sync** (`project.json`) when discovered; only that project's editor may process it. Supply `projectId` to remove this ambiguity. Legacy `rev` remains the capture ID, filenames remain `<time>.jpg`, and completion also writes `frames-result.json` with `rev`, `projectId`, and `files`. Legacy requests also get incremental status and may use `snapshotHash`. IDs are shared with the queue: never reuse an ID or rev.
+
+Requests and claims survive reloads. They are not automatically retried: after closing an interrupted worker, inspect its partial result, remove its source request file, and submit a fresh ID. An unfinished running request blocks later requests for its project; imports use one global queue. A live worker must finish before its request is removed.
+
+### Named bundles and automatic imports
+
+`bundlePath` can name a JSON file or a directory containing `bundle.json`, anywhere beneath `AGENT_WORKSPACE` or `AGENT_FILES_ROOT`. Relative bundle paths search the workspace first, then the files root. Absolute paths must remain inside those roots; traversal and symlink escapes are rejected. Asset and font paths retain the legacy **root-relative** convention (files root first, workspace second), not relative to the bundle's directory.
+
+Write `imports/import-01.json`:
+
+```json
+{"bundlePath":"drafts/first-cut/bundle.json","name":"First cut"}
+```
+
+Any open page, including `/projects` or an editor, imports it without a click. `imports/import-01.result.json` reports `queued` / `running` then `done` with `projectId` and `assets:[{key,path,ok,mediaId?}]`, or `error` with an explanation and per-asset failures. `name` optionally overrides the bundle name. The open editor keeps its project. The project is saved only after schema validation, file checks, decoding, fonts, icons, and timeline construction succeed; failures remove staged media and any new project. Source files are unchanged.
+
+For immediate navigation, open `/agent?bundle=drafts/first-cut/bundle.json&auto=1`. Without `auto=1`, the page keeps its import button. `/agent` and `/api/agent/bundle` still default to `bundle/bundle.json`. The latter accepts `?bundlePath=...` and validates files before returning the bundle. Existing bundle schema strings remain accepted; structure and referenced asset keys are checked.
+
+### Bundled fonts
+
+```json
+{"fonts":[{"family":"Local Sans","path":"fonts/local-sans.woff2","weight":"400","style":"normal"}]}
+```
+
+Use the same family in text `params.fontFamily`. `weight` and `style` are optional FontFace descriptors; declare separate faces for bold/italic, or a weight range for a variable font. Font bytes are embedded in project settings and saved with the project, then loaded before its scenes on reopen. Declared families bypass the network font loader. The source font file is no longer needed after import. This increases project JSON size; media storage code is unchanged. Fonts not bundled still follow the editor's existing system/network font behavior.
+
+### Size and design units
+
+For image/video media, `size:[w,h]` is a pixel box and `fit` preserves source aspect ratio:
+
+- `width` is the backward-compatible **default**: displayed width is `w`; `h` is ignored.
+- `contain` uses the smaller scale, so the entire portrait, square, or landscape source fits both dimensions.
+- `cover` uses the larger scale, covering both dimensions. It scales without adding a crop or mask; excess content extends beyond the box.
+
+Graphic `size` sets independent X/Y scales on the native square graphic. Explicit `params["transform.scaleX/Y"]` overrides size-derived scales. A media `scale` keyframe is a multiplier of its size-derived fit scale.
+
+Native units and pixel aliases (in `params`, or graphic `graphic.params`):
+
+- `transform.positionX/Y` are pixels from the canvas center. Scale is a multiplier and rotation is degrees.
+- Text `fontSize` becomes a font em size of `fontSize * canvasHeight / 90` pixels, then the text transform is applied. At 1080p, `fontSize:6` is 72 px. `fontSizePx:72` converts to that value at build time. It specifies the em size before element scaling, not measured glyph height.
+- Graphics render on a 512x512 source. A native `strokeWidth:s` becomes `s * min(canvasWidth,canvasHeight) / 512 * abs(scaleX)` horizontally and the analogous `scaleY` vertically. `strokeWidthPx` divides by the smaller final axis scale, so that axis has the requested thickness. Nonuniform scaling stretches the other axis; later scaling/keyframes still scale the stroke.
+- Rectangle `cornerRadius` is 0-50 percent of the shorter source dimension after the centered stroke inset: radius = `(512 - centeredStrokeWidth) * cornerRadius / 100` before element scaling. Polygon radius uses its inscribed geometry: `(256 - inset) * sin(pi / sides) * cornerRadius / 50`, with sides clamped to 3-12. `cornerRadiusPx` converts to this percentage using the smaller final axis scale, capped at the native maximum. Under nonuniform scaling, corners become elliptical. It is supported on rectangles and polygons.
+- Text `background.cornerRadius` is a separate 0-100 percentage: radius = `min(backgroundWidth,backgroundHeight) / 2 * percentage / 100`, before the text transform. Graphic pixel aliases do not apply to text backgrounds.
+
+Aliases override corresponding native values and are removed from stored params. They apply when building bundle, `add`, and `compound` elements; `set` uses native params. Negative/nonfinite pixel values are rejected. Bounds diagnostics in `draft-result.json` add per-operation `warnings:[{code:"mostly-off-canvas",sceneId,id,visibleFraction,message}]` when less than 25% of a changed element's initial rotated bounds intersects its own scene canvas. They do not reject the edit. Bounds include text measurement and media aspect ratio; they exclude effect spill, masks, ancestor compound transforms, and later animation frames. Use frame captures to check the final composition.
+
 
 ## 3D models
 Assets with `type:"model"` accept GLB or glTF with embedded resources. On an element, use `model3d:{params:{rotationY:0,modelScale:1,cameraDistance:3.5,cameraFov:45,lightIntensity:2,lightX:3,lightY:4,lightZ:5}}`; `rotationX/Y/Z` are in degrees. Numeric parameters can be animated through `keyframes` (e.g. `path:"rotationY"`). Transform and opacity work as for image elements.
@@ -56,7 +124,9 @@ Graphic elements can use `graphic:{definitionId:"line"|"arrow"|"path"|"rectangle
 
 Add icons with `icon:{name:"lucide:server",color:"#ffffff"}` on a `graphic` track; icon data is fetched during import and its color can be changed in the editor.
 Add text with `text:"Text"` on a `text` track; text attributes can be set through `params`.
-`group` is stored and reported as `groupId`. Click selects a group, double-click selects a member, and Ctrl+G / Ctrl+Shift+G groups or ungroups.
+## Visual groups
+
+An element's `group:"label"` is stored and reported as `groupId`. It links preview selection and transforms without creating a nested scene. Click selects the group, double-click selects a member, and Ctrl+G / Ctrl+Shift+G groups or ungroups these objects. This field is separate from compound operations.
 
 Preview quality can be selected in the toolbar: Full, ½ (default), or ¼. The choice is stored in the browser and does not reduce export or agent frame quality.
 
@@ -113,7 +183,7 @@ Timeline UI:
      {"id":"i1", "agentId":"icon-db", "start":3, "end":6, "sceneId":"s1", "path":["c1"], "visible":[{"start":11, "end":14, "path":["c1"]}]}]}]}]}
 ```
 
-**Matching inside compounds.** In `set`, `delete`, `group`, `ungroup`, and note `match`:
+**Matching inside compounds.** In `set`, `delete`, `make-compound`, `ungroup`, and note `match`:
 - `{agentId}` or `{id}` searches every scene reachable from the root. If the element is found in more than one scene, the op fails as ambiguous; narrow it with `sceneId` or `path`.
 - `{agentId|id, sceneId}` searches only that scene.
 - `{agentId|id, path:[…]}` searches the scene inside the last clip of `path`; entries are compound clip ids or their agentIds, from the root.
@@ -125,7 +195,8 @@ Timeline UI:
 **New ops.**
 - `add` into a compound: `{op:"add", track:{name, type?, index?, compound:{agentId}|{id}|{path}}, element:el}` adds to that clip's content (a bare `path` means the scene inside the last clip).
 - `{op:"compound", agent_id, name, start, duration?, trimStart?, track:{name, type?, index?, compound?}, params?, keyframes?, elements:[el + track:{name, type?, index?}], main?, overlay?, audio?}` builds a new compound clip from element definitions in one step, for example one clip per motion-graphics scene. Each element is placed like a draft `add` (each new track goes on top, so list elements from back to front); `main`/`overlay`/`audio` follow the bundle layout instead. An element with its own `compound` content becomes a nested compound clip. `duration` defaults to the content length; `track` defaults to `{name:"Compound clips"}`; without a `name`, the clip gets the editor's next "Compound clip N". Keyframes, icons, and assets work as in `add`.
-- `{op:"group", agent_id?, name?, match:[…]}` turns matched elements of one scene into a compound clip in that scene, as grouping in the UI does (the clip goes where the elements were, on a plain track).
+- `{op:"make-compound", agent_id?, name?, match:[…]}` turns matched elements of one scene into a compound clip in that scene, as Alt+G / Create compound clip in the UI does (the clip goes where the elements were, on a plain track).
+- The old `{op:"group", ...}` is a deprecated alias of `make-compound`; both file drafts and `window.agent.applyDraft()` accept it. Results echo the submitted op name.
 - `{op:"ungroup", match}` puts the visible part of a compound clip's content back in its scene.
 
 ```json
@@ -136,12 +207,12 @@ Timeline UI:
   {"agent_id":"whoosh-1", "name":"Whoosh", "asset":{"path":"sfx/whoosh.wav", "type":"audio", "name":"whoosh"}, "start":0.4, "duration":0.8, "track":{"name":"SFX"}}]}
 {"op":"set", "match":{"agentId":"icon-db"}, "start":0.2, "params":{"color":"#ffcc00"}}
 {"op":"add", "track":{"name":"Icons", "compound":{"agentId":"mg-1"}}, "element":{"agent_id":"icon-user", "name":"User", "icon":{"name":"lucide:user"}, "start":1, "duration":3}}
-{"op":"group", "agent_id":"captions-1", "name":"Captions", "match":[{"agentId":"cap-1"}, {"agentId":"cap-2"}]}
+{"op":"make-compound", "agent_id":"captions-1", "name":"Captions", "match":[{"agentId":"cap-1"}, {"agentId":"cap-2"}]}
 ```
 
 Compound clips the agent builds name their main track `Main Track`, like compounds made in the editor; `Main` reaches it by alias. Compound clips go on video tracks (or on audio tracks if their content is audio only). A compound's audio (for example a whoosh inside a motion-graphics clip) plays only on an unmuted track: tracks the agent creates for compounds are unmuted, while video tracks created for footage stay muted as before.
 
-**Results.** Each entry in `draft-result.json` keeps its old fields and adds addresses `{sceneId, trackId, id, agentId, path}`: `element` for `add`/`set` (and `{sceneId,id}` for `delete`); `compound` + `sceneId` (the new content scene) + `elements` (the content) for `compound` and `group`; `elements` for `ungroup`. A failed op changes nothing and reports `error`; the rest of the draft still applies. The result also reports the root `sceneId`.
+**Results.** Each entry in `draft-result.json` keeps its old fields and adds addresses `{sceneId, trackId, id, agentId, path}`: `element` for `add`/`set` (and `{sceneId,id}` for `delete`); `compound` + `sceneId` (the new content scene) + `elements` (the content) for `compound` and `make-compound`; `elements` for `ungroup`. A failed op changes nothing and reports `error`; the rest of the draft still applies. The result also reports the root `sceneId`.
 
 **One Undo.** The whole draft is still one Undo step, even when it changes several scenes (the root and the content of several compound clips): Undo restores every scene the draft changed, removes the scenes it created, and brings back scenes it removed; Redo restores the draft result with the same ids. If a scene the draft changed disappeared outside history, the step is refused with a message and history stays as it is. If the draft removes the scene open in the editor (for example ungrouping the compound clip the human is editing), the root opens instead; Undo brings that scene back and opens it again at its own playhead and selection, and Redo returns to the root. The selection of changed items is part of the step, so Redo selects them again. Items changed inside a compound are shown by selecting the compound clip that contains them in the open scene.
 

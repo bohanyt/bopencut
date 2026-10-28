@@ -8,6 +8,7 @@ import { baseMetaData } from "./metadata";
 import { BotIdClient } from "botid/client";
 import { webEnv } from "@/env/web";
 import { Inter } from "next/font/google";
+import { AgentImportPoller } from "@/agent/import-poller";
 
 const siteFont = Inter({ subsets: ["latin"] });
 
@@ -39,6 +40,7 @@ export default function RootLayout({
 				>
 					<TooltipProvider>
 						<Toaster />
+						<AgentImportPoller />
 						{/* Fork: databuddy analytics removed (local only). */}
 						{children}
 					</TooltipProvider>

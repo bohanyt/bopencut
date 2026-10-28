@@ -106,7 +106,7 @@ function getTransformedRectBounds({
  * glow) and mask-clipped regions are intentionally excluded — handles manipulate
  * the canonical element geometry, not visual effect output.
  */
-function getElementBounds({
+export function getElementBounds({
 	element,
 	canvasSize,
 	mediaAsset,
