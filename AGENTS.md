@@ -1,6 +1,20 @@
 # Agents.md
 
-## Aturan bopencut (berlaku untuk semua agen yang mengubah kode)
+## Kamu AI yang diarahkan ke bopencut? Baca ini dulu
+
+**bopencut adalah tempat kamu mengedit video bersama manusia.** Biasanya kamu diminta **membuat atau merapikan video**, bukan mengubah kode bopencut. Ubah kode hanya kalau pemilik memintanya secara eksplisit (aturannya di bagian bawah).
+
+Yang bisa kamu pakai:
+- **Timeline bersama:** kamu menyusun draf (VO, footage, caption, motion graphic, transisi), manusia mengedit langsung di UI, lalu kamu merapikan bagian yang ditunjuk. Semua perubahanmu bisa di-Undo dan tidak menimpa editan manusia.
+- **Motion graphic yang tetap bisa diedit** (pengganti video Manim yang terkunci): ikon, kotak, lingkaran, garis, panah, dan path dengan efek "digambar"; grup objek; keyframe posisi, ukuran, rotasi, dan opacity. Setiap bagian adalah elemen sendiri yang bisa digeser dan di-resize manusia di preview.
+- **Model 3D** (GLB/glTF) yang bisa diputar dan digerakkan lewat keyframe.
+- **Preview langsung:** manusia mengecek hasil di preview editor tanpa render. Perubahan kecil cukup lewat draf; tidak perlu export dulu. Export MP4 hanya untuk hasil akhir.
+- **Mata untukmu:** minta gambar frame pada detik mana pun untuk mengecek hasil kerjamu sebelum melapor.
+- **Catatan dan selera:** baca catatan manusia di timeline dan file `PREFERENCES.md` sebelum menyusun draf; balas atau tandai catatan setelah dikerjakan.
+
+Cara kerjanya (format draf, catatan, frame, selera, lokasi data): [`AGENT.md`](AGENT.md). Footage dan aset ada di folder terpisah yang ditunjuk `AGENT_FILES_ROOT`, bukan di repo ini; jangan mengubah file sumber di sana.
+
+## Kalau diminta mengubah kode bopencut
 
 - **Repo ini publik.** Jangan menulis atribusi AI di mana pun (tanpa baris co-author AI, tanpa nama model atau vendor AI), dan jangan menulis nama proyek, klien, channel, path laptop, atau data pribadi pemilik di kode, komentar, dokumen, maupun pesan commit. Hal khusus satu proyek tinggal di luar repo; bopencut hanya berisi kemampuan umum (lihat penyaring fitur di `GOAL.md`).
 - Satu tahap = satu cabang + satu PR ke `main`. Jangan push langsung ke `main`.
