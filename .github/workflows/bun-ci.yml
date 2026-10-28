@@ -4,15 +4,12 @@ concurrency:
   group: bun-ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Runs on every PR (docs included) so it can be a required status check for main.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "*.md"
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "*.md"
 
 jobs:
   build:
@@ -67,6 +64,11 @@ jobs:
       - name: Build
         working-directory: apps/web
         run: bun run build
+
+      # After the build: content-collections generates modules that tsc needs.
+      - name: Typecheck
+        working-directory: apps/web
+        run: bunx tsc --noEmit -p .
 
       - name: Run tests
         working-directory: apps/web
