@@ -124,6 +124,7 @@ export function Captions() {
 				tracks: editor.scenes.getActiveScene().tracks,
 				mediaAssets: editor.media.getAssets(),
 				totalDuration: editor.timeline.getTotalDuration(),
+				scenes: editor.scenes.getScenes(),
 			});
 
 			dispatch({ type: "update_step", step: "Preparing audio..." });

@@ -4,7 +4,9 @@ import type {
 	LibraryAudioElement,
 	RetimeConfig,
 	SceneTracks,
+	TScene,
 } from "@/timeline";
+import { expandCompoundAudioTracks } from "@/timeline/compound";
 import { shouldMaintainPitch } from "@/retime/rate";
 import type { MediaAsset } from "@/media/types";
 import { applyAudioMasteringToBuffer } from "@/media/audio-mastering";
@@ -92,12 +94,16 @@ export interface AudibleElementCandidate {
 }
 
 export function collectAudibleCandidates({
-	tracks,
+	tracks: sceneTracks,
 	mediaAssets,
+	scenes = [],
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
+	/** All project scenes; needed to mix the audio inside compound clips. */
+	scenes?: TScene[];
 }): AudibleElementCandidate[] {
+	const tracks = expandCompoundAudioTracks({ tracks: sceneTracks, scenes });
 	const allTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
 	const mediaMap = new Map(mediaAssets.map((a) => [a.id, a]));
 	const candidates: AudibleElementCandidate[] = [];
@@ -124,11 +130,13 @@ export function collectAudibleCandidates({
 export function timelineHasAudio({
 	tracks,
 	mediaAssets,
+	scenes,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
+	scenes?: TScene[];
 }): boolean {
-	return collectAudibleCandidates({ tracks, mediaAssets }).some(
+	return collectAudibleCandidates({ tracks, mediaAssets, scenes }).some(
 		({ element }) => !isElementMuted({ element }),
 	);
 }
@@ -137,12 +145,14 @@ export async function collectAudioElements({
 	tracks,
 	mediaAssets,
 	audioContext,
+	scenes,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	audioContext: AudioContext;
+	scenes?: TScene[];
 }): Promise<CollectedAudioElement[]> {
-	const candidates = collectAudibleCandidates({ tracks, mediaAssets });
+	const candidates = collectAudibleCandidates({ tracks, mediaAssets, scenes });
 	const mediaMap = new Map<string, MediaAsset>(
 		mediaAssets.map((media) => [media.id, media]),
 	);
@@ -484,12 +494,15 @@ function collectMediaAudioClip({
 }
 
 export async function collectAudioMixSources({
-	tracks,
+	tracks: sceneTracks,
 	mediaAssets,
+	scenes = [],
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
+	scenes?: TScene[];
 }): Promise<AudioMixSource[]> {
+	const tracks = expandCompoundAudioTracks({ tracks: sceneTracks, scenes });
 	const orderedTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
 	const audioMixSources: AudioMixSource[] = [];
 	const mediaMap = new Map<string, MediaAsset>(
@@ -547,12 +560,15 @@ export async function collectAudioMixSources({
 }
 
 export async function collectAudioClips({
-	tracks,
+	tracks: sceneTracks,
 	mediaAssets,
+	scenes = [],
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
+	scenes?: TScene[];
 }): Promise<AudioClipSource[]> {
+	const tracks = expandCompoundAudioTracks({ tracks: sceneTracks, scenes });
 	const orderedTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
 	const clips: AudioClipSource[] = [];
 	const mediaMap = new Map<string, MediaAsset>(
@@ -628,12 +644,14 @@ export async function createTimelineAudioBuffer({
 	duration,
 	sampleRate = EXPORT_SAMPLE_RATE,
 	audioContext,
+	scenes,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	duration: number;
 	sampleRate?: number;
 	audioContext?: AudioContext;
+	scenes?: TScene[];
 }): Promise<AudioBuffer | null> {
 	const context = audioContext ?? createAudioContext({ sampleRate });
 
@@ -641,6 +659,7 @@ export async function createTimelineAudioBuffer({
 		tracks,
 		mediaAssets,
 		audioContext: context,
+		scenes,
 	});
 
 	if (audioElements.length === 0) return null;

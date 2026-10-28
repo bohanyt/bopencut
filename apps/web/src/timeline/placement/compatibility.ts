@@ -1,4 +1,5 @@
-import type { ElementType, TrackType } from "@/timeline";
+import type { ElementType, TScene, TrackType } from "@/timeline";
+import { canCompoundGoOnTrack, getCompoundTrackType } from "@/timeline/compound";
 
 const ELEMENT_TRACK_MAP: Record<ElementType, TrackType> = {
 	audio: "audio",
@@ -8,6 +9,8 @@ const ELEMENT_TRACK_MAP: Record<ElementType, TrackType> = {
 	effect: "effect",
 	video: "video",
 	image: "video",
+	// Default only; placement uses getTrackTypeForElement, which looks at the content.
+	compound: "video",
 };
 
 export function getTrackTypeForElementType({
@@ -18,6 +21,20 @@ export function getTrackTypeForElementType({
 	return ELEMENT_TRACK_MAP[elementType];
 }
 
+/** Track type a new element is placed on; compound clips depend on their nested content. */
+export function getTrackTypeForElement({
+	element,
+	scenes,
+}: {
+	element: { type: ElementType; sceneId?: string };
+	scenes: TScene[];
+}): TrackType {
+	if (element.type === "compound" && element.sceneId) {
+		return getCompoundTrackType({ scenes, sceneId: element.sceneId });
+	}
+	return getTrackTypeForElementType({ elementType: element.type });
+}
+
 export function canElementGoOnTrack({
 	elementType,
 	trackType,
@@ -25,20 +42,26 @@ export function canElementGoOnTrack({
 	elementType: ElementType;
 	trackType: TrackType;
 }): boolean {
+	if (elementType === "compound") {
+		return trackType === "video" || trackType === "audio";
+	}
 	return getTrackTypeForElementType({ elementType }) === trackType;
 }
 
 export function validateElementTrackCompatibility({
 	element,
 	track,
+	scenes,
 }: {
-	element: { type: ElementType };
+	element: { type: ElementType; sceneId?: string };
 	track: { type: TrackType };
+	scenes: TScene[];
 }): { isValid: boolean; errorMessage?: string } {
-	const isValid = canElementGoOnTrack({
-		elementType: element.type,
-		trackType: track.type,
-	});
+	// A compound may stay on a video track whatever its content (see canCompoundGoOnTrack).
+	const isValid =
+		element.type === "compound" && element.sceneId
+			? canCompoundGoOnTrack({ scenes, sceneId: element.sceneId, trackType: track.type })
+			: getTrackTypeForElement({ element, scenes }) === track.type;
 
 	if (!isValid) {
 		return {

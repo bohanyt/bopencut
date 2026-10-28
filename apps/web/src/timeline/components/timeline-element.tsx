@@ -81,7 +81,6 @@ import { useMemo, type ComponentProps, type ReactNode } from "react";
 import type { SelectedKeyframeRef, ElementKeyframe } from "@/animation/types";
 import { cn } from "@/utils/ui";
 import { usePropertiesStore } from "@/components/editor/panels/properties/stores/properties-store";
-import { getTrackTypeForElementType } from "@/timeline/placement/compatibility";
 import { useTimelineStore } from "@/timeline/timeline-store";
 import { KEYFRAME_LANE_HEIGHT_PX } from "./layout";
 import {
@@ -588,9 +587,7 @@ function ElementInner({
 							className={cn(
 								"flex shrink-0 items-center overflow-hidden",
 								getTimelineElementClassName({
-									type: getTrackTypeForElementType({
-										elementType: element.type,
-									}),
+									type: track.type,
 								}),
 								isReducedOpacity && "opacity-50",
 							)}

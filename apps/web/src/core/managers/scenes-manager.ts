@@ -21,12 +21,27 @@ import {
 	ToggleBookmarkCommand,
 	UpdateBookmarkCommand,
 } from "@/commands/scene";
-import type { MediaTime } from "@/wasm";
+import { type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
+import {
+	assertTracksAcyclic,
+	relocateVisualCompounds,
+	syncCompoundDurations,
+} from "@/timeline/compound";
+
+/** Tracks of another scene that the scenes manager changed itself while a command ran. */
+export interface DerivedSceneChange {
+	sceneId: string;
+	before: SceneTracks;
+	after: SceneTracks;
+}
 
 export class ScenesManager {
 	private active: TScene | null = null;
 	private list: TScene[] = [];
 	private listeners = new Set<() => void>();
+	private derivedLog: Map<string, { before: SceneTracks; after: SceneTracks }> | null = null;
+	/** Last playhead of each scene, restored when the editor switches back to it. */
+	private playheads = new Map<string, MediaTime>();
 
 	constructor(private editor: EditorCore) {}
 
@@ -53,7 +68,10 @@ export class ScenesManager {
 			throw new Error("Scene not found");
 		}
 
-		const { canDelete, reason } = canDeleteScene({ scene: sceneToDelete });
+		const { canDelete, reason } = canDeleteScene({
+			scene: sceneToDelete,
+			scenes: this.list,
+		});
 		if (!canDelete) {
 			throw new Error(reason);
 		}
@@ -91,23 +109,46 @@ export class ScenesManager {
 			throw new Error("Scene not found");
 		}
 
-		const activeProject = this.editor.project.getActive();
+		this.enterScene(targetScene);
+		this.notify();
+	}
 
-		if (activeProject) {
-			const updatedProject = {
-				...activeProject,
-				currentSceneId: sceneId,
-				metadata: {
-					...activeProject.metadata,
-					updatedAt: new Date(),
-				},
-			};
-
-			this.editor.project.setActiveProject({ project: updatedProject });
+	/**
+	 * The one way the open scene changes, for explicit switches and scene-list changes alike
+	 * (e.g. deleting the open scene or undoing that). It remembers the outgoing playhead, pauses
+	 * playback (switching is an edit-side jump, so playback stops cleanly at the restored
+	 * playhead), clears the selection, publishes the destination together with its own restored
+	 * playhead, and records it as the project's current scene. Callers notify afterwards, so
+	 * duration reconciliation only sees the destination's playhead against its own duration.
+	 */
+	private enterScene(target: TScene | null): void {
+		const previous = this.active;
+		if (!target || previous?.id === target.id) {
+			this.active = target;
+			return;
 		}
 
-		this.active = targetScene;
-		this.notify();
+		const { playback, selection, project } = this.editor;
+		if (previous) {
+			this.playheads.set(previous.id, playback.getCurrentTime());
+		}
+		if (playback.getIsPlaying()) {
+			playback.pause();
+		}
+		this.active = target;
+		selection.clearSelection();
+		playback.seek({ time: this.playheads.get(target.id) ?? ZERO_MEDIA_TIME });
+
+		const activeProject = project.getActiveOrNull();
+		if (activeProject) {
+			project.setActiveProject({
+				project: {
+					...activeProject,
+					currentSceneId: target.id,
+					metadata: { ...activeProject.metadata, updatedAt: new Date() },
+				},
+			});
+		}
 	}
 
 	async toggleBookmark({ time }: { time: MediaTime }): Promise<void> {
@@ -177,7 +218,7 @@ export class ScenesManager {
 		try {
 			const result = await storageService.loadProject({ id: projectId });
 			if (result?.project.scenes) {
-				const ensuredScenes = result.project.scenes ?? [];
+				const ensuredScenes = this.normalize(result.project.scenes ?? []);
 				const currentScene = findCurrentScene({
 					scenes: ensuredScenes,
 					currentSceneId: result.project.currentSceneId,
@@ -202,7 +243,7 @@ export class ScenesManager {
 		scenes: TScene[];
 		currentSceneId?: string;
 	}): void {
-		const ensuredScenes = ensureMainScene({ scenes });
+		const ensuredScenes = this.normalize(ensureMainScene({ scenes }));
 		const currentScene = currentSceneId
 			? ensuredScenes.find((s) => s.id === currentSceneId)
 			: null;
@@ -261,11 +302,19 @@ export class ScenesManager {
 		scenes: TScene[];
 		activeSceneId?: string;
 	}): void {
+		// Reject a cycle before anything changes; then keep compound durations in step.
+		for (const scene of scenes) {
+			if (this.list.includes(scene)) continue;
+			assertTracksAcyclic({ scenes, sceneId: scene.id, tracks: scene.tracks });
+		}
+		scenes = this.normalize(scenes);
 		this.list = scenes;
 		const nextActiveSceneId = activeSceneId ?? this.active?.id ?? null;
-		this.active = nextActiveSceneId
-			? (scenes.find((scene) => scene.id === nextActiveSceneId) ?? null)
-			: null;
+		// If the open scene is gone, the main scene opens instead.
+		const nextActive =
+			(nextActiveSceneId ? scenes.find((scene) => scene.id === nextActiveSceneId) : undefined) ??
+			(this.active ? getMainScene({ scenes }) : null);
+		this.enterScene(nextActive);
 		this.notify();
 
 		const activeProject = this.editor.project.getActive();
@@ -287,6 +336,58 @@ export class ScenesManager {
 		return () => this.listeners.delete(listener);
 	}
 
+	/** Starts recording tracks of other scenes that change as a side effect (compound relocation). */
+	beginDerivedLog(): void {
+		this.derivedLog = new Map();
+	}
+
+	endDerivedLog(): DerivedSceneChange[] {
+		const changes = [...(this.derivedLog ?? new Map()).entries()].map(
+			([sceneId, change]) => ({ sceneId, ...change }),
+		);
+		this.derivedLog = null;
+		return changes;
+	}
+
+	/** Puts derived changes back (undo, failed command) or re-applies them (redo). */
+	applyDerivedChanges({
+		changes,
+		side,
+	}: {
+		changes: DerivedSceneChange[];
+		side: "before" | "after";
+	}): void {
+		if (changes.length === 0) return;
+		const tracksById = new Map(changes.map((change) => [change.sceneId, change[side]]));
+		this.setScenes({
+			scenes: this.list.map((scene) => {
+				const tracks = tracksById.get(scene.id);
+				return tracks ? { ...scene, tracks } : scene;
+			}),
+		});
+	}
+
+	/**
+	 * Derived compound state: clips that gained visuals leave audio tracks, then every
+	 * sourceDuration follows its nested scene. Relocations of scenes other than the active one
+	 * are logged so the running command can undo and redo them.
+	 */
+	private normalize(scenes: TScene[]): TScene[] {
+		const relocated = relocateVisualCompounds(scenes);
+		const synced = syncCompoundDurations(relocated);
+		if (this.derivedLog && relocated !== scenes) {
+			for (const [index, scene] of scenes.entries()) {
+				if (relocated[index] === scene || scene.id === this.active?.id) continue;
+				const logged = this.derivedLog.get(scene.id);
+				this.derivedLog.set(scene.id, {
+					before: logged?.before ?? scene.tracks,
+					after: synced[index].tracks,
+				});
+			}
+		}
+		return synced;
+	}
+
 	private notify(): void {
 		this.listeners.forEach((fn) => {
 			fn();
@@ -295,6 +396,9 @@ export class ScenesManager {
 
 	updateSceneTracks({ tracks }: { tracks: SceneTracks }): void {
 		if (!this.active) return;
+		const activeId = this.active.id;
+		// Every timeline edit lands here, so this is the boundary that keeps compound cycles out.
+		assertTracksAcyclic({ scenes: this.list, sceneId: activeId, tracks });
 
 		const updatedScene: TScene = {
 			...this.active,
@@ -302,10 +406,10 @@ export class ScenesManager {
 			updatedAt: new Date(),
 		};
 
-		this.list = this.list.map((s) =>
-			s.id === this.active?.id ? updatedScene : s,
+		this.list = this.normalize(
+			this.list.map((s) => (s.id === activeId ? updatedScene : s)),
 		);
-		this.active = updatedScene;
+		this.active = this.list.find((s) => s.id === activeId) ?? updatedScene;
 		this.notify();
 
 		const activeProject = this.editor.project.getActive();

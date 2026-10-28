@@ -19,11 +19,14 @@ export function applyPlacement({
 	placementResult,
 	elements,
 	newTrackInsertIndexOverride,
+	newTrackId = generateUUID(),
 }: {
 	tracks: SceneTracks;
 	placementResult: PlacementResult;
 	elements: TimelineElement[];
 	newTrackInsertIndexOverride?: number;
+	/** Pass a fixed id so a redone command recreates the same track. */
+	newTrackId?: string;
 }): { updatedTracks: SceneTracks; targetTrackId: string } | null {
 	const orderedTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
 	if (placementResult.kind === "existingTrack") {
@@ -44,7 +47,6 @@ export function applyPlacement({
 		return { updatedTracks, targetTrackId: targetTrack.id };
 	}
 
-	const newTrackId = generateUUID();
 	const insertIndex =
 		newTrackInsertIndexOverride ?? placementResult.insertIndex;
 	const updatedTracks =

@@ -164,7 +164,11 @@ export class AudioManager {
 			await audioContext.resume();
 		}
 
-		this.clips = await collectAudioClips({ tracks, mediaAssets });
+		this.clips = await collectAudioClips({
+			tracks,
+			mediaAssets,
+			scenes: this.editor.scenes.getScenes(),
+		});
 		if (!this.editor.playback.getIsPlaying()) return;
 
 		this.playbackStartTime = time;

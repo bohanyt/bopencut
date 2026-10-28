@@ -36,6 +36,7 @@ import {
 	type ResolvedGraphicNodeState,
 } from "./nodes/graphic-node";
 import { Model3dNode } from "./nodes/model3d-node";
+import { CompoundNode } from "./nodes/compound-node";
 import { renderModel3d } from "@/model3d/render";
 import { model3dParams } from "@/params/registry";
 import { resolveAnimationPathValueAtTime } from "@/animation";
@@ -79,6 +80,11 @@ async function resolveNode({
 	node: AnyBaseNode;
 	context: ResolveContext;
 }): Promise<void> {
+	if (node instanceof CompoundNode) {
+		await resolveCompoundNode({ node, context });
+		return;
+	}
+
 	if (node instanceof VideoNode) {
 		node.resolved = await resolveVideoNode({ node, context });
 	} else if (node instanceof Model3dNode) {
@@ -188,6 +194,31 @@ function resolveVisualState({
 			height: Math.max(1, Math.round(effectHeight * context.renderer.renderScale)),
 		}),
 	};
+}
+
+// The nested scene is resolved at its own local time: t - startTime + trimStart.
+async function resolveCompoundNode({
+	node,
+	context,
+}: {
+	node: CompoundNode;
+	context: ResolveContext;
+}): Promise<void> {
+	node.resolved = resolveVisualState({
+		params: node.params,
+		context,
+		sourceWidth: context.renderer.width,
+		sourceHeight: context.renderer.height,
+	});
+	if (!node.resolved) return;
+
+	await resolveNode({
+		node: node.params.content,
+		context: {
+			...context,
+			time: context.time - node.params.timeOffset + node.params.trimStart,
+		},
+	});
 }
 
 async function resolveVideoNode({

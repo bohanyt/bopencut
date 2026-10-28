@@ -1,4 +1,8 @@
-import { Command, type CommandResult } from "@/commands/base-command";
+import {
+	Command,
+	createElementSelectionResult,
+	type CommandResult,
+} from "@/commands/base-command";
 import { EditorCore } from "@/core";
 import type { MediaAsset } from "@/media/types";
 import { buildWaveformSourceKey } from "@/media/waveform-summary";
@@ -6,11 +10,19 @@ import { storageService } from "@/services/storage/service";
 import { videoCache } from "@/services/video-cache/service";
 import { waveformCache } from "@/services/waveform-cache/service";
 import { hasMediaId } from "@/timeline/element-utils";
-import type { SceneTracks } from "@/timeline";
+import type { SceneTracks, TScene, TimelineTrack } from "@/timeline";
+
+function withoutMedia<T extends TimelineTrack>(track: T, mediaId: string): T {
+	const elements = track.elements.filter(
+		(element) => !(hasMediaId(element) && element.mediaId === mediaId),
+	);
+	return (elements.length === track.elements.length ? track : { ...track, elements }) as T;
+}
 
 export class RemoveMediaAssetCommand extends Command {
 	private savedAssets: MediaAsset[] | null = null;
-	private savedTracks: SceneTracks | null = null;
+	/** All scenes before removal: clips using the asset are removed everywhere, compound content included. */
+	private savedScenes: TScene[] | null = null;
 	private removedAsset: MediaAsset | null = null;
 
 	constructor({
@@ -33,7 +45,7 @@ export class RemoveMediaAssetCommand extends Command {
 		const assets = editor.media.getAssets();
 
 		this.savedAssets = [...assets];
-		this.savedTracks = editor.scenes.getActiveScene().tracks;
+		this.savedScenes = editor.scenes.getScenes();
 
 		this.removedAsset =
 			assets.find((media) => media.id === this.assetId) ?? null;
@@ -62,22 +74,26 @@ export class RemoveMediaAssetCommand extends Command {
 			assets: assets.filter((media) => media.id !== this.assetId),
 		});
 
-		const elementsToRemove: Array<{ trackId: string; elementId: string }> = [];
-
-		for (const track of [
-			...this.savedTracks.overlay,
-			this.savedTracks.main,
-			...this.savedTracks.audio,
-		]) {
-			for (const element of track.elements) {
-				if (hasMediaId(element) && element.mediaId === this.assetId) {
-					elementsToRemove.push({ trackId: track.id, elementId: element.id });
-				}
-			}
-		}
-
-		if (elementsToRemove.length > 0) {
-			editor.timeline.deleteElements({ elements: elementsToRemove });
+		// Remove the clips here rather than through another command, so this stays one history
+		// entry and its selection intent is returned below.
+		let removedClips = false;
+		const nextScenes = this.savedScenes.map((scene) => {
+			const tracks: SceneTracks = {
+				overlay: scene.tracks.overlay.map((track) => withoutMedia(track, this.assetId)),
+				main: withoutMedia(scene.tracks.main, this.assetId),
+				audio: scene.tracks.audio.map((track) => withoutMedia(track, this.assetId)),
+			};
+			const changed =
+				tracks.main !== scene.tracks.main ||
+				tracks.overlay.some((track, index) => track !== scene.tracks.overlay[index]) ||
+				tracks.audio.some((track, index) => track !== scene.tracks.audio[index]);
+			if (!changed) return scene;
+			removedClips = true;
+			return { ...scene, tracks };
+		});
+		if (removedClips) {
+			editor.scenes.setScenes({ scenes: nextScenes });
+			editor.timeline.updateTracks(editor.scenes.getActiveScene().tracks);
 		}
 
 		storageService
@@ -85,6 +101,8 @@ export class RemoveMediaAssetCommand extends Command {
 			.catch((error) => {
 				console.error("Failed to delete media item:", error);
 			});
+
+		return removedClips ? createElementSelectionResult([]) : undefined;
 	}
 
 	undo(): void {
@@ -112,8 +130,9 @@ export class RemoveMediaAssetCommand extends Command {
 				});
 		}
 
-		if (this.savedTracks) {
-			editor.timeline.updateTracks(this.savedTracks);
+		if (this.savedScenes) {
+			editor.scenes.setScenes({ scenes: this.savedScenes });
+			editor.timeline.updateTracks(editor.scenes.getActiveScene().tracks);
 		}
 	}
 }

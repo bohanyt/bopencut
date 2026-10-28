@@ -9,15 +9,16 @@ import type {
 import { generateUUID } from "@/utils/id";
 import { requiresMediaId } from "@/timeline/element-utils";
 import type { MediaAsset } from "@/media/types";
+import type { TProjectSettings } from "@/project/types";
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { floatToFrameRate } from "@/fps/utils";
 import { graphicsRegistry, registerDefaultGraphics } from "@/graphics";
 import {
 	applyPlacement,
-	canElementGoOnTrack,
 	resolveTrackPlacement,
 	validateElementTrackCompatibility,
 } from "@/timeline/placement";
+import { getTrackTypeForElement } from "@/timeline/placement/compatibility";
 import { roundMediaTime } from "@/wasm";
 
 type InsertElementPlacement =
@@ -33,6 +34,11 @@ export class InsertElementCommand extends Command {
 	private elementId: string;
 	private savedState: SceneTracks | null = null;
 	private targetTrackId: string | null = null;
+	/** Project settings this insertion changed (first visual media sets canvas size and fps). */
+	private savedSettings: Partial<TProjectSettings> | null = null;
+
+	/** Id for a track this insertion creates, fixed so redo recreates the same track. */
+	private readonly newTrackId = generateUUID();
 
 	constructor({ element, placement }: InsertElementParams) {
 		super();
@@ -80,9 +86,12 @@ export class InsertElementCommand extends Command {
 		const isVisualMedia =
 			newElement.type === "video" || newElement.type === "image";
 
+		this.savedSettings = null;
 		if (isFirstElement && isVisualMedia) {
 			const mediaAssets = editor.media.getAssets();
 			const activeProject = editor.project.getActive();
+			const { canvasSize, originalCanvasSize, fps } = activeProject.settings;
+			this.savedSettings = { canvasSize, originalCanvasSize, fps };
 			const asset = mediaAssets.find(
 				(item: MediaAsset) => item.id === newElement.mediaId,
 			);
@@ -128,6 +137,12 @@ export class InsertElementCommand extends Command {
 		if (this.savedState) {
 			const editor = EditorCore.getInstance();
 			editor.timeline.updateTracks(this.savedState);
+			if (this.savedSettings) {
+				editor.project.updateSettings({
+					settings: this.savedSettings,
+					pushHistory: false,
+				});
+			}
 		}
 	}
 
@@ -210,14 +225,24 @@ export class InsertElementCommand extends Command {
 		element: TimelineElement;
 	}): { updatedTracks: SceneTracks; targetTrackId: string } | null {
 		const placement = this.placement;
+		const scenes = EditorCore.getInstance().scenes.getScenes();
+		// Compound clips need a video or audio track depending on what they contain.
+		const explicitTrack =
+			placement.mode === "explicit"
+				? [...tracks.overlay, tracks.main, ...tracks.audio].find(
+						(track) => track.id === placement.trackId,
+					)
+				: undefined;
+		const requiredTrackType =
+			explicitTrack &&
+			validateElementTrackCompatibility({ element, track: explicitTrack, scenes }).isValid
+				? explicitTrack.type
+				: getTrackTypeForElement({ element, scenes });
 
 		if (
 			placement.mode === "auto" &&
 			placement.trackType &&
-			!canElementGoOnTrack({
-				elementType: element.type,
-				trackType: placement.trackType,
-			})
+			placement.trackType !== requiredTrackType
 		) {
 			console.error(
 				`${element.type} elements cannot be placed on ${placement.trackType} tracks`,
@@ -227,9 +252,7 @@ export class InsertElementCommand extends Command {
 
 		const placementResult = resolveTrackPlacement({
 			tracks,
-			...(placement.mode === "auto" && placement.trackType
-				? { trackType: placement.trackType }
-				: { elementType: element.type }),
+			trackType: requiredTrackType,
 			timeSpans: [
 				{
 					startTime: element.startTime,
@@ -256,6 +279,7 @@ export class InsertElementCommand extends Command {
 				const validation = validateElementTrackCompatibility({
 					element,
 					track: targetTrack,
+					scenes,
 				});
 				console.error(validation.errorMessage);
 			}
@@ -284,6 +308,7 @@ export class InsertElementCommand extends Command {
 				placement.mode === "auto" && typeof placement.insertIndex === "number"
 					? placement.insertIndex
 					: undefined,
+			newTrackId: this.newTrackId,
 		});
 		if (!appliedPlacement) {
 			return null;

@@ -2,6 +2,7 @@ import type { TScene } from "@/timeline";
 import { generateUUID } from "@/utils/id";
 import { calculateTotalDuration } from "@/timeline";
 import { MAIN_TRACK_NAME } from "@/timeline/placement/main-track";
+import { isCompoundSceneReferenced } from "@/timeline/compound";
 import { type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
 
 export function getMainScene({ scenes }: { scenes: TScene[] }): TScene | null {
@@ -46,12 +47,22 @@ export function buildDefaultScene({
 	};
 }
 
-export function canDeleteScene({ scene }: { scene: TScene }): {
+export function canDeleteScene({
+	scene,
+	scenes,
+}: {
+	scene: TScene;
+	/** All project scenes; a scene still used by a compound clip cannot be deleted. */
+	scenes: TScene[];
+}): {
 	canDelete: boolean;
 	reason?: string;
 } {
 	if (scene.isMain) {
 		return { canDelete: false, reason: "Cannot delete main scene" };
+	}
+	if (isCompoundSceneReferenced({ scenes, sceneId: scene.id })) {
+		return { canDelete: false, reason: "Scene is used by a compound clip" };
 	}
 	return { canDelete: true };
 }

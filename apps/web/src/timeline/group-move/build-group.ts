@@ -59,6 +59,7 @@ export function buildMoveGroup({
 				trackId: track.id,
 				elementId: element.id,
 				elementType: element.type,
+				trackType: track.type,
 				duration: element.duration,
 				timeOffset: subMediaTime({
 					a: element.startTime,
