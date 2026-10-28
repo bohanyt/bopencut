@@ -34,8 +34,12 @@ export class GraphicNode extends VisualNode<
 
 	getSource({
 		resolvedParams,
+		width = DEFAULT_GRAPHIC_SOURCE_SIZE,
+		height = DEFAULT_GRAPHIC_SOURCE_SIZE,
 	}: {
 		resolvedParams: ParamValues;
+		width?: number;
+		height?: number;
 	}): OffscreenCanvas {
 		const definition = getGraphicDefinition({
 			definitionId: this.params.definitionId,
@@ -43,21 +47,23 @@ export class GraphicNode extends VisualNode<
 		const cacheKey = JSON.stringify({
 			definitionId: this.params.definitionId,
 			params: resolvedParams,
+			width,
+			height,
 		});
 		if (this.cachedSource && this.cachedKey === cacheKey) {
 			return this.cachedSource;
 		}
 
 		const { canvas, context } = createCanvasSurface({
-			width: DEFAULT_GRAPHIC_SOURCE_SIZE,
-			height: DEFAULT_GRAPHIC_SOURCE_SIZE,
+			width,
+			height,
 		});
 
 		definition.render({
 			ctx: context,
 			params: resolvedParams,
-			width: DEFAULT_GRAPHIC_SOURCE_SIZE,
-			height: DEFAULT_GRAPHIC_SOURCE_SIZE,
+			width,
+			height,
 		});
 
 		this.cachedKey = cacheKey;

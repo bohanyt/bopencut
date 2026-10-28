@@ -110,6 +110,7 @@ export type AudioElement = UploadAudioElement | LibraryAudioElement;
 
 interface BaseTimelineElement {
 	id: string;
+	groupId?: string;
 	name: string;
 	duration: MediaTime;
 	startTime: MediaTime;

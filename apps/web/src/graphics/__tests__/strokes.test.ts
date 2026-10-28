@@ -1,5 +1,11 @@
 ﻿import { describe, expect, test } from "bun:test";
-import { progressDash } from "../definitions/strokes";
+import {
+	parseViewBox,
+	progressDash,
+	splitSubpaths,
+	subpathProgress,
+	viewBoxTransform,
+} from "../definitions/strokes";
 import { iconUrl } from "@/stickers/providers/iconify";
 
 describe("stroke reveal", () => {
@@ -16,7 +22,34 @@ describe("stroke reveal", () => {
 
 describe("icon URLs", () => {
 	test("uses only an Iconify prefix and name", () => {
-		expect(iconUrl("lucide:server")).toBe("https://api.iconify.design/lucide/server.svg");
+		expect(iconUrl("lucide:server")).toBe(
+			"https://api.iconify.design/lucide/server.svg",
+		);
 		expect(() => iconUrl("../../x:y")).toThrow();
+	});
+});
+
+describe("SVG paths", () => {
+	test("accepts arbitrary viewBox origins and rejects invalid boxes", () => {
+		expect(parseViewBox("-12, 3 24 48")).toEqual([-12, 3, 24, 48]);
+		expect(parseViewBox("0 0 0 24")).toBeNull();
+		const transform = viewBoxTransform([-12, 3, 24, 48], 240, 480);
+		expect([
+			(-12 + transform.translateX) * transform.scaleX,
+			(3 + transform.translateY) * transform.scaleY,
+		]).toEqual([0, 0]);
+		expect([
+			(12 + transform.translateX) * transform.scaleX,
+			(51 + transform.translateY) * transform.scaleY,
+		]).toEqual([240, 480]);
+	});
+	test("reveals subpaths sequentially by length", () => {
+		expect(splitSubpaths("M2 2L22 2 M2 8L22 8 m1 1l2 2")).toEqual([
+			"M2 2L22 2",
+			"M2 8L22 8",
+			"m1 1l2 2",
+		]);
+		expect(subpathProgress([20, 20, 10], 0.5)).toEqual([20, 5, 0]);
+		expect(subpathProgress([20, 20, 10], 1)).toEqual([20, 20, 10]);
 	});
 });

@@ -50,8 +50,8 @@ export const iconGraphicDefinition: GraphicDefinition = {
 						break;
 					}
 				}
-				if (fill !== "none") { ctx.fillStyle = color; ctx.fill(path, node.getAttribute("fill-rule") === "evenodd" ? "evenodd" : "nonzero"); }
-				if (stroke !== "none") { ctx.strokeStyle = color; ctx.stroke(path); }
+				if (fill !== "none") { ctx.fillStyle = fill === "currentColor" ? color : fill; ctx.fill(path, node.getAttribute("fill-rule") === "evenodd" ? "evenodd" : "nonzero"); }
+				if (stroke !== "none") { ctx.strokeStyle = stroke === "currentColor" ? color : stroke; ctx.stroke(path); }
 			} catch { /* Skip malformed geometry. */ }
 			for (const child of Array.from(node.children)) renderNode(child, fill, stroke);
 			ctx.restore();

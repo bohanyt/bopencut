@@ -17,10 +17,10 @@ function item(name: string): StickerItem {
 export const iconifyProvider: StickerProvider = {
 	id: "icons",
 	async search({ query, options }): Promise<StickerSearchResult> {
-		const response = await fetch(`${API}/search?query=${encodeURIComponent(query)}&limit=${options?.limit ?? 100}`);
+		const response = await fetch(`${API}/search?query=${encodeURIComponent(query)}&prefixes=lucide&limit=${options?.limit ?? 100}`);
 		if (!response.ok) throw new Error("Icon search failed");
 		const data = await response.json() as { icons: string[]; total: number };
-		const icons = data.icons.filter((name) => /^[a-z0-9-]+:[a-z0-9-]+$/.test(name));
+		const icons = data.icons.filter((name) => /^lucide:[a-z0-9-]+$/.test(name));
 		return { items: icons.map(item), total: data.total, hasMore: data.total > icons.length };
 	},
 	async browse({ options }) {

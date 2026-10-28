@@ -9,6 +9,8 @@ import {
 import { usePreviewViewport } from "@/preview/components/preview-viewport";
 import { useEditor } from "@/editor/use-editor";
 import type { PreviewOverlayControl } from "@/preview/overlays";
+import { useEffect } from "react";
+import { changeGroup } from "@/preview/group-actions";
 import { toast } from "sonner";
 
 export function PreviewContextMenu({
@@ -27,6 +29,26 @@ export function PreviewContextMenu({
 }) {
 	const editor = useEditor();
 	const viewport = usePreviewViewport();
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (
+				target?.isContentEditable ||
+				/^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? "")
+			)
+				return;
+			if (
+				(event.ctrlKey || event.metaKey) &&
+				event.key.toLowerCase() === "g" &&
+				!event.altKey
+			) {
+				event.preventDefault();
+				changeGroup(editor, event.shiftKey);
+			}
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [editor]);
 
 	const handleCopySnapshot = async () => {
 		const result = await editor.renderer.copySnapshot();
@@ -52,6 +74,13 @@ export function PreviewContextMenu({
 
 	return (
 		<ContextMenuContent className="w-56" container={container}>
+			<ContextMenuItem onClick={() => changeGroup(editor, false)} inset>
+				Group (Ctrl+G)
+			</ContextMenuItem>
+			<ContextMenuItem onClick={() => changeGroup(editor, true)} inset>
+				Ungroup (Ctrl+Shift+G)
+			</ContextMenuItem>
+			<ContextMenuSeparator />
 			<ContextMenuItem onClick={viewport.fitToScreen} inset>
 				Fit to screen
 			</ContextMenuItem>

@@ -2,6 +2,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import type { MediaAsset } from "@/media/types";
 import {
 	getVisibleElementsWithBounds,
+	getCornerPosition,
 	type Corner,
 	type Edge,
 	type ElementBounds,
@@ -85,7 +86,22 @@ interface RotationSession extends CapturedPointerState {
 	readonly initialBoundsCy: number;
 }
 
+interface GroupSession extends CapturedPointerState {
+	readonly kind: "group";
+	readonly handle: HandleType;
+	readonly cx: number;
+	readonly cy: number;
+	readonly start: Point;
+	readonly members: Array<{
+		trackId: string;
+		elementId: string;
+		params: ParamValues;
+		transform: Transform;
+	}>;
+}
+
 type TransformSession =
+	| GroupSession
 	| { readonly kind: "idle" }
 	| CornerScaleSession
 	| EdgeScaleSession
@@ -201,6 +217,34 @@ function buildSelectedWithBounds({
 	selectedElements: readonly ElementRef[];
 	elementsWithBounds: readonly ElementWithBounds[];
 }): ElementWithBounds | null {
+	if (selectedElements.length > 1) {
+		const entries = elementsWithBounds.filter((entry) =>
+			selectedElements.some(
+				(ref) =>
+					ref.trackId === entry.trackId && ref.elementId === entry.elementId,
+			),
+		);
+		if (entries.length === 0) return null;
+		const points = entries.flatMap(({ bounds }) =>
+			(
+				["top-left", "top-right", "bottom-left", "bottom-right"] as Corner[]
+			).map((corner) => getCornerPosition({ bounds, corner })),
+		);
+		const left = Math.min(...points.map((p) => p.x)),
+			right = Math.max(...points.map((p) => p.x));
+		const top = Math.min(...points.map((p) => p.y)),
+			bottom = Math.max(...points.map((p) => p.y));
+		return {
+			...entries[0],
+			bounds: {
+				cx: (left + right) / 2,
+				cy: (top + bottom) / 2,
+				width: right - left,
+				height: bottom - top,
+				rotation: 0,
+			},
+		};
+	}
 	if (selectedElements.length !== 1) return null;
 
 	return (
@@ -307,6 +351,8 @@ export class TransformHandleController {
 
 	get activeHandle(): HandleType | null {
 		switch (this.session.kind) {
+			case "group":
+				return this.session.handle;
 			case "corner-scale":
 				return this.session.corner;
 			case "edge-scale":
@@ -357,6 +403,7 @@ export class TransformHandleController {
 		event: ReactPointerEvent;
 		corner: Corner;
 	}): void {
+		if (this.beginGroupGesture(event, corner)) return;
 		const context = this.getSelectedVisualContext();
 		if (!context) return;
 
@@ -395,6 +442,7 @@ export class TransformHandleController {
 	}
 
 	onRotationPointerDown({ event }: { event: ReactPointerEvent }): void {
+		if (this.beginGroupGesture(event, "rotation")) return;
 		const context = this.getSelectedVisualContext();
 		if (!context) return;
 
@@ -436,6 +484,7 @@ export class TransformHandleController {
 		event: ReactPointerEvent;
 		edge: Edge;
 	}): void {
+		if (this.beginGroupGesture(event, edge)) return;
 		const context = this.getSelectedVisualContext();
 		if (!context) return;
 
@@ -481,6 +530,9 @@ export class TransformHandleController {
 		if (!position) return;
 
 		switch (this.session.kind) {
+			case "group":
+				this.previewGroup(this.session, position);
+				return;
 			case "corner-scale":
 				this.previewCornerScale({
 					session: this.session,
@@ -549,6 +601,119 @@ export class TransformHandleController {
 			canvasSize: this.deps.scene.getCanvasSize(),
 			mediaAssets: this.deps.scene.getMediaAssets(),
 		});
+	}
+
+	private beginGroupGesture(
+		event: ReactPointerEvent,
+		handle: HandleType,
+	): boolean {
+		const selected = this.deps.scene.getSelectedElements();
+		if (selected.length < 2) return false;
+		const group = this.selectedWithBounds;
+		const start = this.deps.viewport.screenToCanvas({
+			clientX: event.clientX,
+			clientY: event.clientY,
+		});
+		if (!group || !start) return true;
+		const tracks = this.deps.scene.getTracks();
+		const entries = [...tracks.overlay, tracks.main, ...tracks.audio].flatMap(
+			(track) =>
+				track.elements
+					.filter((element) =>
+						selected.some(
+							(ref) => ref.trackId === track.id && ref.elementId === element.id,
+						),
+					)
+					.map((element) => ({
+						trackId: track.id,
+						elementId: element.id,
+						element,
+					})),
+		);
+		const members = entries
+			.filter((entry) => isVisualElement(entry.element))
+			.map((entry) => {
+				const element = entry.element as VisualElement;
+				const localTime = getElementLocalTime({
+					timelineTime: this.deps.scene.getCurrentTime(),
+					elementStartTime: element.startTime,
+					elementDuration: element.duration,
+				});
+				return {
+					trackId: entry.trackId,
+					elementId: entry.elementId,
+					params: element.params,
+					transform: resolveTransformAtTime({
+						baseTransform: buildTransformFromParams({ params: element.params }),
+						animations: element.animations,
+						localTime,
+					}),
+				};
+			});
+		event.stopPropagation();
+		this.session = {
+			kind: "group",
+			handle,
+			cx: group.bounds.cx,
+			cy: group.bounds.cy,
+			start,
+			members,
+			pointerId: event.pointerId,
+			captureTarget: this.capturePointer({
+				target: event.currentTarget as HTMLElement,
+				pointerId: event.pointerId,
+			}),
+		};
+		this.notify();
+		return true;
+	}
+
+	private previewGroup(session: GroupSession, position: Point): void {
+		const { cx, cy, start, handle } = session;
+		const dx = start.x - cx,
+			dy = start.y - cy;
+		const angle =
+			handle === "rotation"
+				? Math.atan2(position.y - cy, position.x - cx) - Math.atan2(dy, dx)
+				: 0;
+		const factor =
+			handle === "rotation"
+				? 1
+				: Math.max(
+						MIN_SCALE,
+						Math.hypot(position.x - cx, position.y - cy) /
+							(Math.hypot(dx, dy) || 1),
+					);
+		const canvas = this.deps.scene.getCanvasSize();
+		const originX = cx - canvas.width / 2,
+			originY = cy - canvas.height / 2;
+		const cos = Math.cos(angle),
+			sin = Math.sin(angle);
+		this.deps.timeline.previewElements(
+			session.members.map(({ trackId, elementId, params, transform }) => {
+				const x = transform.position.x - originX,
+					y = transform.position.y - originY;
+				return {
+					trackId,
+					elementId,
+					updates: {
+						params: buildParamsWithTransform({
+							params,
+							transform: {
+								...transform,
+								position: {
+									x: originX + factor * (x * cos - y * sin),
+									y: originY + factor * (x * sin + y * cos),
+								},
+								scaleX: transform.scaleX * factor,
+								scaleY: transform.scaleY * factor,
+								rotate: transform.rotate + (angle * 180) / Math.PI,
+							},
+						}),
+					},
+				};
+			}),
+		);
 	}
 
 	private getSelectedVisualContext(): VisualSelectionContext | null {

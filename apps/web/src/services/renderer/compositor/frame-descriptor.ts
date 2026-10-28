@@ -227,14 +227,6 @@ async function collectVisualSourceNode({
 		return;
 	}
 
-	const source =
-		node instanceof GraphicNode
-			? node.getSource({ resolvedParams: node.resolved.resolvedParams })
-			: node.resolved.source;
-	if (!source) {
-		return;
-	}
-
 	const sourceWidth =
 		node instanceof GraphicNode
 			? DEFAULT_GRAPHIC_SOURCE_SIZE
@@ -243,21 +235,37 @@ async function collectVisualSourceNode({
 		node instanceof GraphicNode
 			? DEFAULT_GRAPHIC_SOURCE_SIZE
 			: (node.resolved as ResolvedVisualSourceNodeState).sourceHeight;
-
-	const textureId = `${path}:source`;
-	textures.set(textureId, {
-		kind: "external",
-		id: textureId,
-		source,
-		width: sourceWidth,
-		height: sourceHeight,
-	});
-
 	const transform = computeVisualTransform({
 		renderer,
 		resolved: node.resolved,
 		sourceWidth,
 		sourceHeight,
+	});
+	// Rasterize vector graphics at the actual output size, rather than enlarging a fixed texture.
+	const vectorIcon =
+		node instanceof GraphicNode && node.params.definitionId === "icon";
+	const width = vectorIcon
+		? Math.max(1, Math.ceil(transform.width))
+		: sourceWidth;
+	const height = vectorIcon
+		? Math.max(1, Math.ceil(transform.height))
+		: sourceHeight;
+	const source =
+		node instanceof GraphicNode
+			? node.getSource({
+					resolvedParams: node.resolved.resolvedParams,
+					width,
+					height,
+				})
+			: node.resolved.source;
+	if (!source) return;
+	const textureId = `${path}:source`;
+	textures.set(textureId, {
+		kind: "external",
+		id: textureId,
+		source,
+		width,
+		height,
 	});
 	const { mask, strokeLayer } = buildMaskArtifacts({
 		node,
