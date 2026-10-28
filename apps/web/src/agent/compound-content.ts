@@ -4,7 +4,7 @@
 import type { CompoundElement, SceneTracks, TScene } from "@/timeline";
 import { calculateTotalDuration, updateElementInSceneTracks } from "@/timeline";
 import { buildDefaultScene } from "@/timeline/scenes";
-import { sceneHasVisualContent } from "@/timeline/compound";
+import { getNextCompoundName, sceneHasVisualContent } from "@/timeline/compound";
 import { resolveAnimationTarget } from "@/timeline/animation-targets";
 import { buildDefaultParamValues, getBuiltInElementParams } from "@/params/registry";
 import { upsertPathKeyframe } from "@/animation";
@@ -80,10 +80,14 @@ export function placeAgentElement({ tracks, sceneId, e, ref, ctx }: {
 	return { trackId: track.id, element };
 }
 
-/** Builds a compound clip element and its nested scene (pushed to ctx.created, nested clips first). */
+/** Builds a compound clip element and its nested scene (pushed to ctx.created before the clips nested in it). */
 export function buildAgentCompound({ e, hostSceneId, ctx }: { e: AgentElement; hostSceneId: string; ctx: BuildContext }): CompoundElement {
 	const content = e.compound ?? {};
-	const scene: TScene = { ...buildDefaultScene({ name: e.name, isMain: false }), kind: "compound" };
+	// Unnamed content gets the editor's next "Compound clip N", like a compound made in the UI.
+	const name = e.name || getNextCompoundName({ scenes: [...ctx.existing, ...ctx.created] });
+	const scene: TScene = { ...buildDefaultScene({ name, isMain: false }), kind: "compound" };
+	// Registered before its content is built, so unnamed nested compounds get the next numbers.
+	ctx.created.push(scene);
 	// The main track keeps the editor's default name (same as compounds made in the UI); "Main" reaches it by alias.
 	const tracks = scene.tracks;
 	const place = (el: AgentElement, ref: AgentTrackRef) => placeAgentElement({ tracks, sceneId: scene.id, e: el, ref, ctx });
@@ -113,7 +117,7 @@ export function buildAgentCompound({ e, hostSceneId, ctx }: { e: AgentElement; h
 	const duration = (typeof e.duration === "number" ? secs(e.duration) : Math.max(0, sourceDuration - trimStart)) as MediaTime;
 	if (duration <= 0) throw new Error(`compound clip ${e.name} has no duration`);
 	const element = {
-		id: generateUUID(), type: "compound", name: e.name, agentId: e.agent_id, groupId: e.group, sceneId: scene.id,
+		id: generateUUID(), type: "compound", name, agentId: e.agent_id, groupId: e.group, sceneId: scene.id,
 		startTime: secs(e.start ?? 0), duration, trimStart, trimEnd: Math.max(0, sourceDuration - trimStart - duration) as MediaTime, sourceDuration,
 		params: { ...buildDefaultParamValues(getBuiltInElementParams({ type: "compound" })), ...(e.params ?? {}) },
 	} as CompoundElement;
@@ -121,7 +125,6 @@ export function buildAgentCompound({ e, hostSceneId, ctx }: { e: AgentElement; h
 		const paths = k.path === "scale" ? ["transform.scaleX", "transform.scaleY"] : [k.path];
 		for (const propertyPath of paths) ctx.keyframes.push({ sceneId: hostSceneId, trackId: "", elementId: element.id, propertyPath, time: k.time, value: k.value });
 	}
-	ctx.created.push(scene);
 	return element;
 }
 

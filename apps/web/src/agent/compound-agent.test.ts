@@ -428,3 +428,57 @@ describe("round 2 regressions", () => {
 		expect(captureMs).toBeLessThan(50);
 	});
 });
+
+describe("copies made by duplicate/paste (no agentId)", () => {
+	test("a duplicated compound is addressed by id; agentIds still name only the original", async () => {
+		const scenes = nested();
+		(scenes[0].tracks.overlay[0].elements[0] as CompoundElement).agentId = "mg";
+		const editor = setup(scenes);
+		const [dup] = editor.timeline.duplicateElements({ elements: [{ trackId: "t-c1", elementId: "c1" }] });
+		const copy = find(editor, "main", dup.elementId) as CompoundElement;
+		expect(copy.type).toBe("compound");
+		expect(copy.agentId).toBeUndefined();
+		expect(copy.sceneId).not.toBe("s1");
+
+		const all = editor.scenes.getScenes();
+		// The agentId still resolves to the original only.
+		const original = resolveMatch(all, "main", { agentId: "mg" });
+		expect("hit" in original && original.hit.element.id).toBe("c1");
+		const viaPath = resolveMatch(all, "main", { agentId: "label", path: ["mg", "c2"] });
+		expect("hit" in viaPath && [viaPath.hit.sceneId, viaPath.hit.element.id]).toEqual(["s2", "r"]);
+		// The copy's content has no agentIds; it is reached by element id through the copied clip.
+		const copyContent = sceneOf(editor, copy.sceneId);
+		expect(elementsOf(copyContent).every((e) => e.agentId === undefined)).toBe(true);
+		expect("error" in resolveMatch(all, "main", { agentId: "label", path: [dup.elementId] })).toBe(true);
+		const copiedTitle = elementsOf(copyContent).find((e) => e.type === "text") as TimelineElement;
+		const byId = resolveMatch(all, "main", { id: copiedTitle.id });
+		expect("hit" in byId && byId.hit.sceneId).toBe(copy.sceneId);
+
+		const view = buildSceneSnapshot({ scenes: all, rootSceneId: "main", mediaName: new Map() });
+		const copyEntry = view.compounds.find((c) => c.sceneId === copy.sceneId);
+		expect(copyEntry?.path).toEqual([dup.elementId]);
+		expect(copyEntry?.instances.map((i) => [i.compoundId, i.agentId])).toEqual([[dup.elementId, null]]);
+		expect(copyEntry?.tracks.flatMap((t) => t.elements).every((e) => e.agentId === null)).toBe(true);
+
+		// Editing inside the copy by id leaves the original untouched; one undo reverts it.
+		await applyDraft(draft([{ op: "set", match: { id: copiedTitle.id, path: [dup.elementId] }, params: { opacity: 0.1 } }]));
+		expect(elementsOf(sceneOf(editor, copy.sceneId)).find((e) => e.id === copiedTitle.id)?.params.opacity).toBe(0.1);
+		expect(find(editor, "s1", "a1")?.params.opacity).toBeUndefined();
+		editor.command.undo();
+		expect(elementsOf(sceneOf(editor, copy.sceneId)).find((e) => e.id === copiedTitle.id)?.params.opacity).toBeUndefined();
+	});
+});
+
+describe("compound naming", () => {
+	test("an unnamed compound op follows the editor's Compound clip N numbering, nested ones too", () => {
+		const out = computeAgentDraft({
+			scenes: nested(), rootSceneId: "main", canvas: { width: 1920, height: 1080 }, fps: { numerator: 30, denominator: 1 }, ripple: false, mediaFor: () => undefined,
+			ops: [{ op: "compound", start: 0, elements: [
+				{ name: "", start: 0, duration: 1, track: { name: "Inner" }, compound: { elements: [{ name: "t", text: "x", start: 0, duration: 1, track: { name: "T" } }] } },
+			] } as unknown as Parameters<typeof computeAgentDraft>[0]["ops"][number]],
+		});
+		expect(out.results[0].ok).toBe(true);
+		const names = out.scenes.filter((s) => s.kind === "compound" && !["s1", "s2"].includes(s.id)).map((s) => s.name).sort();
+		expect(names).toEqual(["Compound clip 1", "Compound clip 2"]);
+	});
+});

@@ -117,13 +117,14 @@ Timeline UI:
 - `{agentId}` or `{id}` searches every scene reachable from the root. If the element is found in more than one scene, the op fails as ambiguous; narrow it with `sceneId` or `path`.
 - `{agentId|id, sceneId}` searches only that scene.
 - `{agentId|id, path:[…]}` searches the scene inside the last clip of `path`; entries are compound clip ids or their agentIds, from the root.
+- Copies made by duplicate or paste have no `agentId` (see the copy identity policy above), so an `agentId` match always finds the original. Address a copy, and anything inside it, by element `id` (and `path`, using the copied clip's id); the snapshot shows its `agentId` as `null`.
 - When both `id` and `agentId` are given, every candidate scene is searched for the `id` first; `agentId` is only used if no element has that id.
 
 **Times in ops inside a compound are relative to that compound's content**, exactly as the snapshot reports them (`start`, `duration`, `trimStart`, keyframe times). The compound clip keeps its position and length when its content changes: added content becomes `trimEnd`, so extend the clip with a `set` `duration` if it should show more.
 
 **New ops.**
 - `add` into a compound: `{op:"add", track:{name, type?, index?, compound:{agentId}|{id}|{path}}, element:el}` adds to that clip's content (a bare `path` means the scene inside the last clip).
-- `{op:"compound", agent_id, name, start, duration?, trimStart?, track:{name, type?, index?, compound?}, params?, keyframes?, elements:[el + track:{name, type?, index?}], main?, overlay?, audio?}` builds a new compound clip from element definitions in one step, for example one clip per motion-graphics scene. Each element is placed like a draft `add` (each new track goes on top, so list elements from back to front); `main`/`overlay`/`audio` follow the bundle layout instead. An element with its own `compound` content becomes a nested compound clip. `duration` defaults to the content length; `track` defaults to `{name:"Compound clips"}`. Keyframes, icons, and assets work as in `add`.
+- `{op:"compound", agent_id, name, start, duration?, trimStart?, track:{name, type?, index?, compound?}, params?, keyframes?, elements:[el + track:{name, type?, index?}], main?, overlay?, audio?}` builds a new compound clip from element definitions in one step, for example one clip per motion-graphics scene. Each element is placed like a draft `add` (each new track goes on top, so list elements from back to front); `main`/`overlay`/`audio` follow the bundle layout instead. An element with its own `compound` content becomes a nested compound clip. `duration` defaults to the content length; `track` defaults to `{name:"Compound clips"}`; without a `name`, the clip gets the editor's next "Compound clip N". Keyframes, icons, and assets work as in `add`.
 - `{op:"group", agent_id?, name?, match:[…]}` turns matched elements of one scene into a compound clip in that scene, as grouping in the UI does (the clip goes where the elements were, on a plain track).
 - `{op:"ungroup", match}` puts the visible part of a compound clip's content back in its scene.
 
