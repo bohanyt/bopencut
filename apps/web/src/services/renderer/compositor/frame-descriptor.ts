@@ -4,6 +4,7 @@ import { incrementCounter } from "@/diagnostics/render-perf";
 import type { AnyBaseNode } from "../nodes/base-node";
 import type { CanvasRenderer } from "../canvas-renderer";
 import { createCanvasSurface } from "../canvas-utils";
+import { scaleQuad } from "../scale";
 import { BlurBackgroundNode } from "../nodes/blur-background-node";
 import { ColorNode } from "../nodes/color-node";
 import { EffectLayerNode } from "../nodes/effect-layer-node";
@@ -54,8 +55,8 @@ export async function buildFrameDescriptor({
 
 	return {
 		frame: {
-			width: renderer.width,
-			height: renderer.height,
+			width: renderer.outputWidth,
+			height: renderer.outputHeight,
 			clear: {
 				color: [0, 0, 0, 1],
 			},
@@ -93,7 +94,7 @@ async function collectNode({
 
 	if (node instanceof ColorNode) {
 		const textureId = `${path}:color`;
-		const { width, height } = renderer;
+		const { outputWidth: width, outputHeight: height } = renderer;
 		textures.set(textureId, {
 			kind: "rendered",
 			id: textureId,
@@ -140,7 +141,7 @@ async function collectNode({
 			return;
 		}
 		const textureId = `${path}:blur-background`;
-		const { width, height } = renderer;
+		const { outputWidth: width, outputHeight: height } = renderer;
 		const { backdropSource, passes } = node.resolved;
 		// Backdrop pixels come from a decoded video/image frame whose identity
 		// already changes when it changes. Hashing the source reference is
@@ -242,13 +243,23 @@ async function collectVisualSourceNode({
 		sourceHeight,
 	});
 	// Rasterize vector graphics at the actual output size, rather than enlarging a fixed texture.
-	const vectorIcon =
-		node instanceof GraphicNode && node.params.definitionId === "icon";
-	const width = vectorIcon
-		? Math.max(1, Math.ceil(transform.width))
+	const graphic = node instanceof GraphicNode;
+	const vectorIcon = graphic && node.params.definitionId === "icon";
+	const width = graphic
+		? Math.max(
+				1,
+				Math.ceil(
+					vectorIcon ? transform.width : sourceWidth * renderer.renderScale,
+				),
+			)
 		: sourceWidth;
-	const height = vectorIcon
-		? Math.max(1, Math.ceil(transform.height))
+	const height = graphic
+		? Math.max(
+				1,
+				Math.ceil(
+					vectorIcon ? transform.height : sourceHeight * renderer.renderScale,
+				),
+			)
 		: sourceHeight;
 	const source =
 		node instanceof GraphicNode
@@ -256,6 +267,8 @@ async function collectVisualSourceNode({
 					resolvedParams: node.resolved.resolvedParams,
 					width,
 					height,
+					logicalWidth: vectorIcon ? width : sourceWidth,
+					logicalHeight: vectorIcon ? height : sourceHeight,
 				})
 			: node.resolved.source;
 	if (!source) return;
@@ -307,7 +320,7 @@ function collectTextNode({
 	}
 
 	const textureId = `${path}:text`;
-	const { width, height } = renderer;
+	const { outputWidth: width, outputHeight: height } = renderer;
 	// Text output is fully determined by node.params + node.resolved. Both are
 	// plain data we can stringify cheaply; the resolved measured layout is the
 	// expensive part of text setup, so stringifying it here is orders of
@@ -323,7 +336,10 @@ function collectTextNode({
 		width,
 		height,
 		draw: (ctx) => {
+			ctx.save();
+			ctx.scale(width / renderer.width, height / renderer.height);
 			renderTextToContext({ node, ctx });
+			ctx.restore();
 		},
 	});
 	items.push({
@@ -357,25 +373,31 @@ function computeVisualTransform({
 	const absWidth = Math.abs(scaledWidth);
 	const absHeight = Math.abs(scaledHeight);
 
-	return {
-		centerX: renderer.width / 2 + resolved.transform.position.x,
-		centerY: renderer.height / 2 + resolved.transform.position.y,
-		width: absWidth,
-		height: absHeight,
-		rotationDegrees: resolved.transform.rotate,
-		flipX: scaledWidth < 0,
-		flipY: scaledHeight < 0,
-	};
+	return scaleQuad({
+		width: renderer.width,
+		height: renderer.height,
+		targetWidth: renderer.outputWidth,
+		targetHeight: renderer.outputHeight,
+		transform: {
+			centerX: renderer.width / 2 + resolved.transform.position.x,
+			centerY: renderer.height / 2 + resolved.transform.position.y,
+			width: absWidth,
+			height: absHeight,
+			rotationDegrees: resolved.transform.rotate,
+			flipX: scaledWidth < 0,
+			flipY: scaledHeight < 0,
+		},
+	});
 }
 
 function fullCanvasTransform(
 	renderer: CanvasRenderer,
 ): QuadTransformDescriptor {
 	return {
-		centerX: renderer.width / 2,
-		centerY: renderer.height / 2,
-		width: renderer.width,
-		height: renderer.height,
+		centerX: renderer.outputWidth / 2,
+		centerY: renderer.outputHeight / 2,
+		width: renderer.outputWidth,
+		height: renderer.outputHeight,
 		rotationDegrees: 0,
 		flipX: false,
 		flipY: false,
@@ -418,24 +440,31 @@ function buildMaskArtifacts({
 	// (e.g. split mask uses a linear gradient instead of JFA). The descriptor feather is
 	// zeroed so the GPU compositor copies the mask texture as-is and does not run a second
 	// JFA feather pass on top of an already-soft texture.
-	const feather = body.kind === "drawWithFeather" ? 0 : mask.params.feather;
+	const feather =
+		body.kind === "drawWithFeather"
+			? 0
+			: mask.params.feather * renderer.renderScale;
 
 	const maskTextureId = `${path}:mask`;
-	const { width: canvasWidth, height: canvasHeight } = renderer;
+	const { outputWidth: canvasWidth, outputHeight: canvasHeight } = renderer;
+	const maskScale = renderer.renderScale;
+	const logicalWidth = transform.width / maskScale;
+	const logicalHeight = transform.height / maskScale;
 	const maskContentHash = `mask:${mask.type}:${JSON.stringify(mask.params)}:${transformHash(transform)}:${canvasWidth}x${canvasHeight}:body=${body.kind}:fastPath=${usesOpaqueFastPath}`;
 	const drawMask: TextureCanvasDrawFn = (ctx) => {
 		const { canvas: elementMaskCanvas, context: elementMaskCtx } =
 			createCanvasSurface({
-				width: Math.round(transform.width),
-				height: Math.round(transform.height),
+				width: Math.max(1, Math.round(transform.width)),
+				height: Math.max(1, Math.round(transform.height)),
 			});
 
+		elementMaskCtx.scale(maskScale, maskScale);
 		switch (body.kind) {
 			case "fillPath": {
 				const path2d = body.buildPath({
 					resolvedParams: mask.params,
-					width: transform.width,
-					height: transform.height,
+					width: logicalWidth,
+					height: logicalHeight,
 				});
 				elementMaskCtx.fillStyle = "white";
 				elementMaskCtx.fill(path2d);
@@ -445,16 +474,16 @@ function buildMaskArtifacts({
 				body.drawOpaque({
 					resolvedParams: mask.params,
 					ctx: elementMaskCtx,
-					width: Math.round(transform.width),
-					height: Math.round(transform.height),
+					width: Math.round(logicalWidth),
+					height: Math.round(logicalHeight),
 				});
 				break;
 			case "drawWithFeather":
 				if (usesOpaqueFastPath && body.opaqueFastPath) {
 					const path2d = body.opaqueFastPath.buildPath({
 						resolvedParams: mask.params,
-						width: transform.width,
-						height: transform.height,
+						width: logicalWidth,
+						height: logicalHeight,
 					});
 					elementMaskCtx.fillStyle = "white";
 					elementMaskCtx.fill(path2d);
@@ -462,8 +491,8 @@ function buildMaskArtifacts({
 					body.drawWithFeather({
 						resolvedParams: mask.params,
 						ctx: elementMaskCtx,
-						width: Math.round(transform.width),
-						height: Math.round(transform.height),
+						width: Math.round(logicalWidth),
+						height: Math.round(logicalHeight),
 						feather: mask.params.feather,
 					});
 				}
@@ -489,24 +518,25 @@ function buildMaskArtifacts({
 		const strokeContentHash = `stroke:${mask.type}:${JSON.stringify(mask.params)}:${transformHash(transform)}:${canvasWidth}x${canvasHeight}:stroke=${stroke.kind}`;
 		const drawStroke: TextureCanvasDrawFn = (ctx) => {
 			const { canvas: strokeCanvas, context: strokeCtx } = createCanvasSurface({
-				width: Math.round(transform.width),
-				height: Math.round(transform.height),
+				width: Math.max(1, Math.round(transform.width)),
+				height: Math.max(1, Math.round(transform.height)),
 			});
 
+			strokeCtx.scale(maskScale, maskScale);
 			switch (stroke.kind) {
 				case "renderStroke":
 					stroke.renderStroke({
 						resolvedParams: mask.params,
 						ctx: strokeCtx,
-						width: transform.width,
-						height: transform.height,
+						width: logicalWidth,
+						height: logicalHeight,
 					});
 					break;
 				case "strokeFromPath": {
 					const strokePath = stroke.buildStrokePath({
 						resolvedParams: mask.params,
-						width: transform.width,
-						height: transform.height,
+						width: logicalWidth,
+						height: logicalHeight,
 					});
 					strokeCtx.strokeStyle = mask.params.strokeColor;
 					strokeCtx.lineWidth = mask.params.strokeWidth;

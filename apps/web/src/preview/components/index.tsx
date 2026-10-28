@@ -18,6 +18,8 @@ import type {
 	PreviewOverlayInstance,
 } from "@/preview/overlays";
 import { PreviewContextMenu } from "./context-menu";
+import { usePreviewStore } from "@/preview/preview-store";
+import { previewQualityScale } from "@/preview/quality";
 import { PreviewToolbar } from "./toolbar";
 import {
 	PreviewViewportProvider,
@@ -142,6 +144,7 @@ function PreviewCanvas({
 	const lastFrameRef = useRef(-1);
 	const lastSceneRef = useRef<RootNode | null>(null);
 	const renderingRef = useRef(false);
+	const lastRendererRef = useRef<CanvasRenderer | null>(null);
 	const { width: nativeWidth, height: nativeHeight } = usePreviewSize();
 	const viewportSize = useContainerSize({ containerRef: viewportRef });
 	const editor = useEditor();
@@ -156,17 +159,17 @@ function PreviewCanvas({
 	});
 	const { canPan, panByScreenDelta, scaleZoom } = viewport;
 
+	const quality = usePreviewStore((state) => state.quality);
 	const renderer = useMemo(() => {
 		return new CanvasRenderer({
 			width: nativeWidth,
 			height: nativeHeight,
 			fps: activeProject.settings.fps,
+			renderScale: previewQualityScale(quality),
 		});
-	}, [nativeWidth, nativeHeight, activeProject.settings.fps]);
+	}, [nativeWidth, nativeHeight, activeProject.settings.fps, quality]);
 
-	// Mount the compositor's output canvas directly into the preview. wgpu
-	// renders straight into this element, so there is no intermediate copy —
-	// the container div owns positioning/styling, the canvas itself fills it.
+	// Each renderer owns its output so snapshots and exports cannot resize the preview.
 	useEffect(() => {
 		const mount = canvasMountRef.current;
 		if (!mount) return;
@@ -184,6 +187,10 @@ function PreviewCanvas({
 
 	const render = useCallback(() => {
 		if (!renderTree || renderingRef.current) return;
+		if (lastRendererRef.current !== renderer) {
+			lastRendererRef.current = renderer;
+			lastFrameRef.current = -1;
+		}
 
 		const renderTime = Math.min(
 			editor.playback.getCurrentTime(),
@@ -206,7 +213,8 @@ function PreviewCanvas({
 		lastFrameRef.current = frame;
 		renderer
 			.render({ node: renderTree, time: renderTime })
-			.then(() => {
+			.catch((error) => console.error("Preview render failed:", error))
+			.finally(() => {
 				renderingRef.current = false;
 			});
 	}, [renderer, renderTree, editor.playback, editor.timeline]);

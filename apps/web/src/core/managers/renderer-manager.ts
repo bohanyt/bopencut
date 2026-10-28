@@ -80,10 +80,9 @@ export class RendererManager {
 
 	async createSnapshot({ time }: { time?: import("@/wasm").MediaTime } = {}): Promise<SnapshotResult> {
 		try {
-			const renderTree = this.getRenderTree();
 			const activeProject = this.editor.project.getActive();
 
-			if (!renderTree || !activeProject) {
+			if (!activeProject) {
 				return { success: false, error: "No project or scene to capture" };
 			}
 
@@ -93,6 +92,13 @@ export class RendererManager {
 			}
 
 			const { canvasSize, fps } = activeProject.settings;
+			const renderTree = buildScene({
+				tracks: this.editor.timeline.getPreviewTracks() ?? this.editor.scenes.getActiveScene().tracks,
+				mediaAssets: this.editor.media.getAssets(),
+				duration,
+				canvasSize,
+				background: activeProject.settings.background,
+			});
 			const renderTime = Math.min(
 				time ?? this.editor.playback.getCurrentTime(),
 				this.editor.timeline.getLastFrameTime(),

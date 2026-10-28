@@ -184,8 +184,8 @@ function resolveVisualState({
 			effects: params.effects,
 			animations: params.animations,
 			localTime,
-			width: effectWidth,
-			height: effectHeight,
+			width: Math.max(1, Math.round(effectWidth * context.renderer.renderScale)),
+			height: Math.max(1, Math.round(effectHeight * context.renderer.renderScale)),
 		}),
 	};
 }
@@ -239,7 +239,7 @@ async function resolveVideoNode({
 const MODEL3D_SOURCE_SIZE = 1024;
 
 async function resolveModel3dNode({ node, context }: { node: Model3dNode; context: ResolveContext }): Promise<ResolvedVisualSourceNodeState | null> {
-	const size = MODEL3D_SOURCE_SIZE;
+	const size = Math.max(1, Math.round(MODEL3D_SOURCE_SIZE * context.renderer.renderScale));
 	const visualState = resolveVisualState({ params: node.params, context, sourceWidth: size, sourceHeight: size });
 	if (!visualState) return null;
 	const params = { ...node.params.params };
@@ -384,8 +384,8 @@ function resolveTextNode({
 			effects: node.params.effects,
 			animations: node.params.animations,
 			localTime,
-			width: context.renderer.width,
-			height: context.renderer.height,
+			width: context.renderer.outputWidth,
+			height: context.renderer.outputHeight,
 		}),
 		measuredText: measureTextElement({
 			element: node.params,
@@ -418,12 +418,12 @@ async function resolveBlurBackgroundNode({
 		passes: buildGaussianBlurPasses({
 			sigmaX: intensityToSigma({
 				intensity: node.params.blurIntensity,
-				resolution: context.renderer.width,
+				resolution: context.renderer.outputWidth,
 				reference: 1920,
 			}),
 			sigmaY: intensityToSigma({
 				intensity: node.params.blurIntensity,
-				resolution: context.renderer.height,
+				resolution: context.renderer.outputHeight,
 				reference: 1080,
 			}),
 		}),
@@ -487,8 +487,8 @@ function resolveEffectLayerNode({
 	const passes = resolveEffectPasses({
 		definition,
 		effectParams: node.params.effectParams,
-		width: context.renderer.width,
-		height: context.renderer.height,
+		width: context.renderer.outputWidth,
+		height: context.renderer.outputHeight,
 	});
 	if (passes.length === 0) {
 		return null;
