@@ -37,6 +37,9 @@ export class InsertElementCommand extends Command {
 	/** Project settings this insertion changed (first visual media sets canvas size and fps). */
 	private savedSettings: Partial<TProjectSettings> | null = null;
 
+	/** Id for a track this insertion creates, fixed so redo recreates the same track. */
+	private readonly newTrackId = generateUUID();
+
 	constructor({ element, placement }: InsertElementParams) {
 		super();
 		this.elementId = generateUUID();
@@ -305,6 +308,7 @@ export class InsertElementCommand extends Command {
 				placement.mode === "auto" && typeof placement.insertIndex === "number"
 					? placement.insertIndex
 					: undefined,
+			newTrackId: this.newTrackId,
 		});
 		if (!appliedPlacement) {
 			return null;

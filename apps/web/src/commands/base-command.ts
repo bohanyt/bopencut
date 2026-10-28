@@ -24,6 +24,14 @@ export abstract class Command {
 
 	abstract execute(): CommandResult | undefined;
 
+	/**
+	 * True if undoing/redoing this command brings back `sceneId` itself (e.g. undoing the
+	 * deletion of that scene). History only runs a command whose scene is missing in that case.
+	 */
+	restoresScene(_: { sceneId: string; direction: "undo" | "redo" }): boolean {
+		return false;
+	}
+
 	undo(): void {
 		throw new Error("Undo not implemented for this command");
 	}

@@ -73,7 +73,7 @@ Rules kept by the scenes manager on every change:
 - A change that would make a scene contain itself (directly or through nested clips) is rejected with `CompoundCycleError` before anything is applied; a batch is rolled back as a whole.
 - A scene that a compound clip still references cannot be deleted.
 
-History is scene-bound: each command remembers the scene it ran in, and Undo/Redo apply it there even if another scene is open (e.g. edit inside a compound, go back, Undo reverts the nested edit). Selection is only restored while that scene is open.
+History is scene-bound: each command remembers the scene it ran in. Undo/Redo of a command from another scene first switches the editor to that scene (like an NLE jumping to the sequence being undone), then runs there; each scene keeps its own playhead, and switching scenes clears the selection. If that scene no longer exists and the command does not bring it back, the step is refused with a message and history stays as it is. Redoing a scene creation or an insertion that made a track brings back the same scene and track ids.
 
 A nested scene carries `compoundOrigin: {hostTrackOrder, trackSources}`: the host track order when the clip was created and, per nested track id, the host track its elements came from. Ungroup puts each nested track back on that host track when it still exists, has room, and is muted/hidden the same way; otherwise on a separate track right next to it that keeps the nested track's state.
 

@@ -1,6 +1,11 @@
 import { Command, type CommandResult } from "./base-command";
+import { EditorCore } from "@/core";
 
 export class BatchCommand extends Command {
+	// Ripple is applied per child below, so children that opt out (compound create/ungroup)
+	// stay exempt, also inside nested batches.
+	override readonly ripples = false;
+
 	constructor(private commands: Command[]) {
 		super();
 	}
@@ -26,10 +31,16 @@ export class BatchCommand extends Command {
 		let latestSelectionResult: CommandResult | undefined;
 		const done: Command[] = [];
 
+		const editor = EditorCore.getInstance();
 		try {
 			for (const command of this.commands) {
+				const beforeTracks =
+					editor.command.isRippleEnabled && command.ripples
+						? (editor.scenes.getActiveSceneOrNull()?.tracks ?? null)
+						: null;
 				const result = run(command);
 				done.push(command);
+				editor.command.applyRipple({ beforeTracks });
 				if (result?.selection !== undefined) {
 					latestSelectionResult = result;
 				}

@@ -49,6 +49,16 @@ export class DeleteSceneCommand extends Command {
 		});
 	}
 
+	override restoresScene({
+		sceneId,
+		direction,
+	}: {
+		sceneId: string;
+		direction: "undo" | "redo";
+	}): boolean {
+		return direction === "undo" && sceneId === this.sceneId;
+	}
+
 	undo(): void {
 		if (this.savedScenes && this.deletedScene) {
 			const editor = EditorCore.getInstance();

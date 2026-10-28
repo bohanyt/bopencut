@@ -218,4 +218,43 @@ describe("compound clip policy", () => {
 		expect(resolveAnimationTarget({ element: clip, path: "volume" })).toBeNull();
 		expect(resolveAnimationTarget({ element: clip, path: "opacity" })).not.toBeNull();
 	});
+
+	test("relocation checks a nested scene's content once, however many clips use it", () => {
+		const bigElements = Array.from({ length: 20_000 }, (_, index) => audio(`a${index}`, index, 1));
+		let scans = 0;
+		const counted = new Proxy(bigElements, {
+			get(target, key, receiver) {
+				if (key === "some") scans++;
+				return Reflect.get(target, key, receiver);
+			},
+		});
+		const big = scene(
+			"big",
+			{
+				overlay: [],
+				main: { id: "big-m", name: "Main Track", type: "video", muted: false, hidden: false, elements: [] },
+				audio: [{ id: "big-a", name: "A", type: "audio", muted: false, elements: counted }],
+			},
+			{ kind: "compound" },
+		);
+		const clips: CompoundElement[] = Array.from({ length: 1000 }, (_, index) => ({
+			id: `c${index}`,
+			type: "compound",
+			name: "c",
+			sceneId: "big",
+			startTime: t(index * 2),
+			duration: t(1),
+			trimStart: t(0),
+			trimEnd: t(0),
+			params: {},
+		}));
+		const host = scene("main", {
+			overlay: [],
+			main: { id: "m", name: "Main Track", type: "video", muted: false, hidden: false, elements: [] },
+			audio: [{ id: "a", name: "A", type: "audio", muted: false, elements: clips }],
+		});
+		const scenes = [host, big];
+		expect(relocateVisualCompounds(scenes)).toBe(scenes);
+		expect(scans).toBe(1);
+	});
 });

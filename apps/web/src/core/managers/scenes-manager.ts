@@ -21,7 +21,7 @@ import {
 	ToggleBookmarkCommand,
 	UpdateBookmarkCommand,
 } from "@/commands/scene";
-import type { MediaTime } from "@/wasm";
+import { type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
 import {
 	assertTracksAcyclic,
 	relocateVisualCompounds,
@@ -40,6 +40,8 @@ export class ScenesManager {
 	private list: TScene[] = [];
 	private listeners = new Set<() => void>();
 	private derivedLog: Map<string, { before: SceneTracks; after: SceneTracks }> | null = null;
+	/** Last playhead of each scene, restored when the editor switches back to it. */
+	private playheads = new Map<string, MediaTime>();
 
 	constructor(private editor: EditorCore) {}
 
@@ -107,6 +109,11 @@ export class ScenesManager {
 			throw new Error("Scene not found");
 		}
 
+		const previousId = this.active?.id ?? null;
+		if (previousId && previousId !== sceneId) {
+			this.playheads.set(previousId, this.editor.playback.getCurrentTime());
+		}
+
 		const activeProject = this.editor.project.getActive();
 
 		if (activeProject) {
@@ -124,6 +131,13 @@ export class ScenesManager {
 
 		this.active = targetScene;
 		this.notify();
+		if (previousId !== sceneId) {
+			// Selection refs belong to the scene that was open.
+			this.editor.selection.clearSelection();
+			this.editor.playback.seek({
+				time: this.playheads.get(sceneId) ?? ZERO_MEDIA_TIME,
+			});
+		}
 	}
 
 	async toggleBookmark({ time }: { time: MediaTime }): Promise<void> {
@@ -307,28 +321,6 @@ export class ScenesManager {
 	subscribe(listener: () => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
-	}
-
-	/**
-	 * Runs `fn` with `sceneId` as the active scene, then switches back. Commands act on the active
-	 * scene, so this binds undo/redo to the scene a command ran in. If the previous scene no longer
-	 * exists afterwards, the scene `fn` ran in stays active.
-	 */
-	runInScene<T>({ sceneId, fn }: { sceneId: string | null; fn: () => T }): T {
-		const previousId = this.active?.id ?? null;
-		const target = sceneId ? this.list.find((s) => s.id === sceneId) : undefined;
-		if (!target || previousId === sceneId) return fn();
-
-		this.active = target;
-		try {
-			return fn();
-		} finally {
-			this.active =
-				this.list.find((s) => s.id === previousId) ??
-				this.list.find((s) => s.id === sceneId) ??
-				getMainScene({ scenes: this.list });
-			this.notify();
-		}
 	}
 
 	/** Starts recording tracks of other scenes that change as a side effect (compound relocation). */

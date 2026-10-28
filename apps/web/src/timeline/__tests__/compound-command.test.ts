@@ -299,7 +299,7 @@ describe("compound clip commands", () => {
 		expect(findCompound(editor.scenes.getScenes()).startTime).toBe(t(5));
 	});
 
-	test("Undo after leaving a nested scene reverts the nested edit, not the open scene", async () => {
+	test("Undo after leaving a nested scene switches back to it and reverts only the nested edit", async () => {
 		const editor = setup();
 		const { sceneId } = editor.timeline.createCompound({ elements: refs });
 		await editor.scenes.switchToScene({ sceneId });
@@ -317,14 +317,17 @@ describe("compound clip commands", () => {
 			)?.name;
 		expect(boxName()).toBe("edited");
 
+		const mainTracksOf = () => editor.scenes.getScenes().find((s) => s.id === "main")?.tracks;
+
 		editor.command.undo();
-		expect(editor.scenes.getActiveScene().id).toBe("main");
-		expect(layout(editor.scenes.getActiveScene().tracks)).toEqual(layout(mainTracks));
+		expect(editor.scenes.getActiveScene().id).toBe(sceneId);
+		expect(mainTracksOf()).toBe(mainTracks);
 		expect(boxName()).toBe("box");
 
+		await editor.scenes.switchToScene({ sceneId: "main" });
 		editor.command.redo();
-		expect(editor.scenes.getActiveScene().id).toBe("main");
-		expect(layout(editor.scenes.getActiveScene().tracks)).toEqual(layout(mainTracks));
+		expect(editor.scenes.getActiveScene().id).toBe(sceneId);
+		expect(mainTracksOf()).toBe(mainTracks);
 		expect(boxName()).toBe("edited");
 	});
 });

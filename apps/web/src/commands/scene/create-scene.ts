@@ -26,7 +26,9 @@ export class CreateSceneCommand extends Command {
 		const editor = EditorCore.getInstance();
 		this.savedScenes = [...editor.scenes.getScenes()];
 
-		this.createdScene = buildDefaultScene({
+		// Redo brings back the same scene (same scene and track ids), so later commands recorded
+		// in it still find it.
+		this.createdScene ??= buildDefaultScene({
 			name: this.name,
 			isMain: this.isMain,
 		});

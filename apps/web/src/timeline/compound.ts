@@ -148,26 +148,34 @@ export function sceneHasVisualContent({
 	scenes,
 	sceneId,
 	visiting = new Set<string>(),
+	cache,
 }: {
 	scenes: TScene[];
 	sceneId: string;
 	visiting?: Set<string>;
+	/** Results per scene id, shared by callers that check many clips against the same scenes. */
+	cache?: Map<string, boolean>;
 }): boolean {
+	const cached = cache?.get(sceneId);
+	if (cached !== undefined) return cached;
 	const scene = findScene(scenes, sceneId);
 	if (!scene || visiting.has(sceneId)) return false;
 	visiting.add(sceneId);
-	return getOrderedTracks(scene.tracks).some((track) =>
+	const result = getOrderedTracks(scene.tracks).some((track) =>
 		track.elements.some((element) => {
 			if (isCompoundElement(element)) {
 				return sceneHasVisualContent({
 					scenes,
 					sceneId: element.sceneId,
 					visiting,
+					cache,
 				});
 			}
 			return element.type !== "audio";
 		}),
 	);
+	cache?.set(sceneId, result);
+	return result;
 }
 
 /** Track placement rule: any visual content → video track; audio only → audio track. */
@@ -746,6 +754,7 @@ export function syncCompoundDurations(scenes: TScene[]): TScene[] {
  */
 export function relocateVisualCompounds(scenes: TScene[]): TScene[] {
 	if (!scenes.some(isCompoundScene)) return scenes;
+	const visualCache = new Map<string, boolean>();
 	let changed = false;
 	const next = scenes.map((scene) => {
 		const moving: { element: CompoundElement; from: AudioTrack }[] = [];
@@ -753,7 +762,7 @@ export function relocateVisualCompounds(scenes: TScene[]): TScene[] {
 			for (const element of track.elements) {
 				if (
 					isCompoundElement(element) &&
-					sceneHasVisualContent({ scenes, sceneId: element.sceneId })
+					sceneHasVisualContent({ scenes, sceneId: element.sceneId, cache: visualCache })
 				) {
 					moving.push({ element, from: track });
 				}
