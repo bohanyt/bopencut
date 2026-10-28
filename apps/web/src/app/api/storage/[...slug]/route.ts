@@ -91,7 +91,7 @@ async function handle(
 					const value = await req.json();
 					if (value?.metadata?.id !== id)
 						return Response.json(
-							{ error: "ID proyek tidak cocok" },
+							{ error: "Project ID mismatch" },
 							{ status: 400 },
 						);
 					const current = await readJson(projectFile(id));
@@ -100,7 +100,7 @@ async function handle(
 						return Response.json({ skipped: true });
 					const expected = req.headers.get("if-match");
 					if (!migrating && expected !== (current ? revision(current) : "new"))
-						return Response.json({ error: "Proyek berubah" }, { status: 409 });
+						return Response.json({ error: "Project changed" }, { status: 409 });
 					await atomicWrite(projectFile(id), JSON.stringify(value));
 					if (migrating)
 						await atomicWrite(marker(id), JSON.stringify({ migrated: true }));

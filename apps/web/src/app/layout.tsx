@@ -39,7 +39,7 @@ export default function RootLayout({
 				>
 					<TooltipProvider>
 						<Toaster />
-						{/* Fork: analitik databuddy dibuang (lokal saja). */}
+						{/* Fork: databuddy analytics removed (local only). */}
 						{children}
 					</TooltipProvider>
 				</ThemeProvider>

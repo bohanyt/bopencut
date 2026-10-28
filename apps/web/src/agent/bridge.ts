@@ -1,5 +1,5 @@
-// Setiap perubahan timeline ditulis ke AGENT_WORKSPACE/project.json (detik, piksel),
-// supaya agen tahu lokasi/waktu/posisi tiap item tanpa membuka browser.
+// Every timeline change is written to AGENT_WORKSPACE/project.json (seconds, pixels),
+// so the agent can see each item's location, time, and position without opening the browser.
 import { EditorCore } from "@/core";
 import { TICKS_PER_SECOND, roundMediaTime } from "@/wasm";
 import { toast } from "sonner";
@@ -9,6 +9,7 @@ import { UpsertKeyframeCommand } from "@/commands/timeline";
 import { getFrameTime } from "@/timeline/bookmarks";
 import { pollFrames } from "./frames";
 import { validNote } from "./notes";
+import { findTrackByName } from "./track-names";
 import { AgentNotesCommand } from "./note-command";
 import type { SceneTracks } from "@/timeline/types";
 import { loadIcon } from "@/stickers/providers/iconify";
@@ -36,7 +37,7 @@ export function agentSnapshot() {
 	return {
 		schema: "opencut-agent-sync-1", projectId: project.metadata.id, projectName: project.metadata.name, savedAt: new Date().toISOString(),
 		canvas: project.settings.canvasSize, fps: project.settings.fps,
-		note: "Waktu dalam detik. transform.positionX/Y = piksel dari pusat kanvas. overlay index 0 = paling atas.",
+		note: "Times are in seconds. transform.positionX/Y = pixels from the canvas center. Overlay index 0 = topmost.",
 		notes: scene.bookmarks.filter((b) => b.note?.trim()).map((b) => ({ id: b.id ?? `legacy-${b.time}`, text: b.note, start: s(b.time), ...(b.duration ? { end: s(b.time + b.duration) } : {}), elementIds: b.elementIds ?? [], replies: b.replies ?? [], author: b.author ?? "user", resolved: b.resolved ?? false, createdAt: b.createdAt ?? null })),
 		tracks: [...t.overlay.map((x, i) => lane(x, "overlay", i)), lane(t.main, "main", 0), ...t.audio.map((x, i) => lane(x, "audio", i))],
 	};
@@ -86,12 +87,12 @@ export function installAgentBridge() {
 	setInterval(pollFrames, 2000);
 }
 
-// Draf agen = daftar operasi per item (bukan proyek utuh), supaya editan manusia tidak tertimpa.
+// An agent draft is a list of per-item operations, protecting human edits.
 // { schema:"opencut-agent-draft-1", rev, label, projectId?, ops:[
 //   {op:"set", match:{agentId}|{id}, start?, duration?, trimStart?, params?},
 //   {op:"delete", match:{agentId}|{id}},
 //   {op:"add", track:{name, type?:"video"|"audio"|"effect", index?}, element:AgentElement (asset:{path,type,name})} ] }
-// Waktu dalam detik. Seluruh draf = satu langkah Undo.
+// Times are in seconds. The whole draft is one Undo step.
 type Match = { agentId?: string; id?: string };
 type DraftOp =
 	| { op: "set"; match: Match; start?: number; duration?: number; trimStart?: number; params?: Record<string, unknown> }
@@ -102,7 +103,7 @@ type DraftOp =
 	| { op: "add"; track: { name: string; type?: "video" | "audio" | "effect" | "graphic" | "text"; index?: number }; element: AgentElement };
 type Draft = { schema: string; rev: string; label?: string; projectId?: string; ops: DraftOp[] };
 
-/** Ganti seluruh trek sekaligus; undo mengembalikan keadaan sebelum draf. */
+/** Replace all tracks at once; undo restores the state before the draft. */
 class AgentDraftCommand extends Command {
 	private saved: SceneTracks | null = null;
 	constructor(private readonly next: SceneTracks) {
@@ -124,7 +125,7 @@ async function pollDraft() {
 	const editor = EditorCore.getInstance();
 	const project = editor.project.getActiveOrNull();
 	if (!project || applying) return;
-	if (editor.timeline.isPreviewActive()) return; // manusia sedang drag: tunda sampai dilepas
+	if (editor.timeline.isPreviewActive()) return; // a human is dragging: wait until release
 	let draft: Draft | null = null;
 	try {
 		draft = await (await fetch("/api/agent/draft", { cache: "no-store" })).json();
@@ -152,7 +153,7 @@ export async function applyDraft(draft: Draft) {
 	const touched: { trackId: string; elementId: string }[] = [];
 	const keyframes: PendingKeyframe[] = [];
 
-	// Aset untuk op add dimuat dulu (async); timeline baru diubah sekaligus sesudahnya.
+	// Load assets for add operations first (async), then update the timeline at once.
 	const loaded = new Map<number, LoadedMedia>();
 	for (const [i, op] of draft.ops.entries()) {
 		if (op.op !== "add") continue;
@@ -182,7 +183,7 @@ export async function applyDraft(draft: Draft) {
 		if (results[i]) continue;
 		if (op.op === "add") {
 			const type = op.track.type ?? (loaded.get(i)?.type === "audio" ? "audio" : op.element.effect ? "effect" : (op.element.graphic || op.element.icon) ? "graphic" : op.element.text !== undefined ? "text" : "video");
-			let track: any = allTracks().find((t) => t.name === op.track.name && t.type === type);
+			let track: any = findTrackByName(allTracks(), op.track.name, type);
 			if (!track) {
 				track = type === "audio"
 					? { id: generateUUID(), name: op.track.name, type, muted: false, elements: [] }
@@ -206,32 +207,32 @@ export async function applyDraft(draft: Draft) {
 		}
 		if (op.op === "note") {
 			if (!validNote(op.text, op.start, op.end) || (op.match !== undefined && (!Array.isArray(op.match) || op.match.some((m) => !m || typeof m !== "object" || !((typeof m.id === "string" && m.id) || (typeof m.agentId === "string" && m.agentId)))))) {
-				results[i] = { op: op.op, ok: false, error: "catatan tidak valid" }; continue;
+				results[i] = { op: op.op, ok: false, error: "invalid note" }; continue;
 			}
 			const time = getFrameTime({ time: secs(op.start), fps: project.settings.fps });
-			if (bookmarks.some((b) => b.time === time)) { results[i] = { op: op.op, ok: false, error: "bookmark sudah ada pada waktu ini" }; continue; }
+			if (bookmarks.some((b) => b.time === time)) { results[i] = { op: op.op, ok: false, error: "bookmark already exists at this time" }; continue; }
 			const hits = (op.match ?? []).map((m) => find(m));
-			if (hits.some((hit) => !hit)) { results[i] = { op: op.op, ok: false, error: "item tidak ditemukan" }; continue; }
+			if (hits.some((hit) => !hit)) { results[i] = { op: op.op, ok: false, error: "item not found" }; continue; }
 			const id = generateUUID();
 			bookmarks.push({ id, time, note: op.text, duration: op.end === undefined ? undefined : roundMediaTime({ time: Math.max(0, secs(op.end) - time) }), elementIds: hits.map((hit) => hit!.track.elements[hit!.index].id), author: "agent", resolved: false, createdAt: new Date().toISOString() });
 			notesChanged = true; results[i] = { op: op.op, id, ok: true }; continue;
 		}
 		if (op.op === "reply-note") {
 			const index = bookmarks.findIndex((b) => (b.id ?? `legacy-${b.time}`) === op.id && b.note?.trim());
-			if (index < 0 || typeof op.text !== "string" || !op.text.trim()) { results[i] = { op: op.op, id: op.id, ok: false, error: "catatan atau balasan tidak valid" }; continue; }
+			if (index < 0 || typeof op.text !== "string" || !op.text.trim()) { results[i] = { op: op.op, id: op.id, ok: false, error: "invalid note or reply" }; continue; }
 			const reply = { id: generateUUID(), text: op.text, author: "agent" as const, createdAt: new Date().toISOString() };
 			bookmarks[index] = { ...bookmarks[index], replies: [...(bookmarks[index].replies ?? []), reply] };
 			notesChanged = true; results[i] = { op: op.op, id: op.id, replyId: reply.id, ok: true }; continue;
 		}
 		if (op.op === "resolve-note") {
 			const index = bookmarks.findIndex((b) => (b.id ?? `legacy-${b.time}`) === op.id && b.note?.trim());
-			if (index < 0) { results[i] = { op: op.op, id: op.id, ok: false, error: "catatan tidak ditemukan" }; continue; }
+			if (index < 0) { results[i] = { op: op.op, id: op.id, ok: false, error: "note not found" }; continue; }
 			bookmarks[index] = { ...bookmarks[index], resolved: true };
 			notesChanged = true; results[i] = { op: op.op, id: op.id, ok: true }; continue;
 		}
 		const hit = find(op.match);
 		if (!hit) {
-			results[i] = { op: op.op, match: op.match, ok: false, error: "item tidak ditemukan (mungkin sudah dihapus di editor)" };
+			results[i] = { op: op.op, match: op.match, ok: false, error: "item not found (it may have been deleted in the editor)" };
 			continue;
 		}
 		const el = hit.track.elements[hit.index];
@@ -265,12 +266,12 @@ export async function applyDraft(draft: Draft) {
 		redo() { let result: ReturnType<BatchCommand["redo"]>; editLogger ? editLogger.agent(() => { result = batch.redo(); }) : (result = batch.redo()); return result!; }
 	}();
 	editor.command.execute({ command });
-	// Item yang barusan diubah/ditambah agen langsung terpilih, supaya terlihat di timeline.
+	// Select items changed or added by the agent so they are visible on the timeline.
 	if (touched.length) editor.selection.setSelectedElements({ elements: touched });
 
 	const failed = results.filter((r) => !r?.ok).length;
-	toast(`Draf agen diterapkan: ${draft.label ?? draft.rev}`, {
-		description: `${results.length - failed} perubahan${failed ? `, ${failed} dilewati` : ""} · item yang diubah terpilih · Ctrl+Z untuk membatalkan`,
+	toast(`Agent draft applied: ${draft.label ?? draft.rev}`, {
+		description: `${results.length - failed} changes${failed ? `, ${failed} skipped` : ""} · changed items selected · Ctrl+Z to undo`,
 	});
 	fetch("/api/agent/applied", {
 		method: "POST",

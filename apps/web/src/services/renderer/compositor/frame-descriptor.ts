@@ -127,7 +127,7 @@ async function collectNode({
 			return;
 		}
 		// Fork: varian enum Rust `SceneEffect` (serde tag + rename_all) membaca field snake_case;
-		// kirim keduanya supaya trek efek (adjustment layer) tidak memutus preview.
+		// send both so effect tracks (adjustment layers) do not interrupt the preview.
 		items.push({
 			type: "sceneEffect",
 			effectPassGroups: [node.resolved.passes],

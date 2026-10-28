@@ -1,12 +1,9 @@
-# Berkontribusi
+# Contributing
 
-bopencut adalah proyek pribadi yang dikembangkan bertahap menurut [GOAL.md](../GOAL.md). Issue dan usulan dipersilakan; PR dari luar mungkin tidak diterima kalau tidak sejalan dengan tahapan.
+bopencut is a personal project developed in stages according to [GOAL.md](../GOAL.md). Issues and suggestions are welcome; external PRs may not be accepted if they do not align with the stages.
 
-Aturan untuk setiap perubahan:
-
-- Satu tahap atau satu perbaikan = satu cabang + satu PR ke `main`.
-- CI harus hijau: `bun run build`, `bunx tsc --noEmit -p .`, dan `bun test` di `apps/web`.
-- Deskripsi PR memuat isi perubahan, kriteria "selesai kalau" dari GOAL.md, dan bukti uji.
-- Aturan untuk agen yang mengubah kode ada di [AGENTS.md](../AGENTS.md).
-
-Menjalankan secara lokal: lihat [README.md](../README.md).
+Rules for every change:
+- One stage or fix = one branch + one PR to `main`.
+- CI must pass: `bun run build`, `bunx tsc --noEmit -p .`, and `bun test` in `apps/web`.
+- The PR description includes the change, the "Done when" criteria from GOAL.md, and test evidence.
+- Rules for agents changing code are in [AGENTS.md](../AGENTS.md).

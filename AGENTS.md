@@ -1,30 +1,33 @@
 # Agents.md
 
-## Kamu AI yang diarahkan ke bopencut? Baca ini dulu
+## Mode 1 — Editing videos (default)
 
-**bopencut adalah tempat kamu mengedit video bersama manusia.** Biasanya kamu diminta **membuat atau merapikan video**, bukan mengubah kode bopencut. Ubah kode hanya kalau pemilik memintanya secara eksplisit (aturannya di bagian bawah).
+**bopencut is a place to edit video alongside a human.** You will usually be asked to **create or refine a video**, not change bopencut code. Change code only when the owner explicitly asks (see the rules below).
 
-Yang bisa kamu pakai:
-- **Timeline bersama:** kamu menyusun draf (VO, footage, caption, motion graphic, transisi), manusia mengedit langsung di UI, lalu kamu merapikan bagian yang ditunjuk. Semua perubahanmu bisa di-Undo dan tidak menimpa editan manusia.
-- **Motion graphic yang tetap bisa diedit** (pengganti video Manim yang terkunci): ikon, kotak, lingkaran, garis, panah, dan path dengan efek "digambar"; grup objek; keyframe posisi, ukuran, rotasi, dan opacity. Setiap bagian adalah elemen sendiri yang bisa digeser dan di-resize manusia di preview.
-- **Model 3D** (GLB/glTF) yang bisa diputar dan digerakkan lewat keyframe.
-- **Preview langsung:** manusia mengecek hasil di preview editor tanpa render. Perubahan kecil cukup lewat draf; tidak perlu export dulu. Export MP4 hanya untuk hasil akhir.
-- **Mata untukmu:** minta gambar frame pada detik mana pun untuk mengecek hasil kerjamu sebelum melapor.
-- **Catatan dan selera:** baca catatan manusia di timeline dan file `PREFERENCES.md` sebelum menyusun draf; balas atau tandai catatan setelah dikerjakan.
+Available capabilities:
+- **Shared timeline:** you assemble a draft (voice-over, footage, captions, motion graphics, transitions), the human edits directly in the UI, then you refine the requested parts. All your changes can be undone and do not overwrite human edits.
+- **Editable motion graphics** (in place of locked Manim videos): icons, rectangles, circles, lines, arrows, and paths with a draw effect; object groups; keyframes for position, size, rotation, and opacity. Each part is a separate element the human can move and resize in the preview.
+- **3D models** (GLB/glTF) that can be rotated and animated with keyframes.
+- **Live preview:** the human checks results in the editor without rendering. Small changes need only a draft, not an export. Export MP4 only for the final result.
+- **Eyes for you:** request a frame image at any time to check your work before reporting.
+- **Notes and preferences:** read human timeline notes and `PREFERENCES.md` before drafting; reply to or resolve notes after addressing them.
 
-Cara kerjanya (format draf, catatan, frame, selera, lokasi data): [`AGENT.md`](AGENT.md). Footage dan aset ada di folder terpisah yang ditunjuk `AGENT_FILES_ROOT`, bukan di repo ini; jangan mengubah file sumber di sana.
+See [`AGENT.md`](AGENT.md) for the workflow (drafts, notes, frames, preferences, and data locations). Footage and assets are in a separate folder specified by `AGENT_FILES_ROOT`, not in this repository; do not modify source files there.
 
-## Kalau diminta mengubah kode bopencut
+## Mode 2 — Changing bopencut's code (only when explicitly asked)
 
-- **Repo ini publik.** Jangan menulis atribusi AI di mana pun (tanpa baris co-author AI, tanpa nama model atau vendor AI), dan jangan menulis nama proyek, klien, channel, path laptop, atau data pribadi pemilik di kode, komentar, dokumen, maupun pesan commit. Hal khusus satu proyek tinggal di luar repo; bopencut hanya berisi kemampuan umum (lihat penyaring fitur di `GOAL.md`).
-- Satu tahap = satu cabang + satu PR ke `main`. Jangan push langsung ke `main`.
-- CI wajib hijau: di `apps/web`, `bun run build`, `bunx tsc --noEmit -p .`, dan `bun test`. Jangan membungkam error tipe (`@ts-ignore`, `any` untuk menghindari error, `ignoreBuildErrors`) dan jangan menghapus tes supaya lulus.
-- Uji di browser hanya lewat otomasi tab browser. Jangan memakai kontrol desktop (mouse, keyboard, screenshot layar, atau clipboard sistem) di mesin pemilik.
-- Data proyek dan folder kerja agen (`workspace/`, `BOPENCUT_DATA`, `AGENT_WORKSPACE`) tidak boleh dikomit.
-- Ikuti gaya kode di sekitarnya. Komentar di file khusus bopencut (`src/agent`, dll.) singkat dalam bahasa Indonesia.
-- Protokol folder kerja agen (bundle, draf, catatan, frame, selera) ada di `AGENT.md`; perbarui dokumen itu kalau formatnya berubah.
+- **This repository is public.** Do not include AI attribution anywhere (no AI co-author lines or AI model or vendor names), or the owner's project, client, channel, laptop path, or private data in code, comments, documents, or commit messages. Project-specific details stay outside the repository; bopencut contains only general capabilities (see the feature filter in `GOAL.md`).
+- One stage = one branch + one PR to `main`. Do not push directly to `main`.
+- CI must pass: in `apps/web`, run `bun run build`, `bunx tsc --noEmit -p .`, and `bun test`. Do not suppress type errors (`@ts-ignore`, `any` to avoid errors, `ignoreBuildErrors`) or delete tests to pass.
+- Test in a browser only through browser tab automation. Do not use desktop controls (mouse, keyboard, screen screenshots, or system clipboard) on the owner's machine.
+- Do not commit project data or agent workspace folders (`workspace/`, `BOPENCUT_DATA`, `AGENT_WORKSPACE`).
+- Follow the surrounding code style. **All code, comments, docs and commit messages are in English; only README.md is in Indonesian.**
+- The agent workspace protocol (bundles, drafts, notes, frames, preferences) is in `AGENT.md`; update it when the format changes.
 
-## Catatan arsitektur dari OpenCut
+## OpenCut architecture notes
+
+Bopencut-specific code, including the agent bridge, storage server, and renderer additions, lives in TypeScript under `apps/web`. The Rust direction below is upstream's long-term plan, not a rule for bopencut changes.
+
 
 An ongoing migration is moving all business logic into `rust/`. Each app under `apps/` is a UI shell — it owns rendering, interaction, and platform-specific concerns, but never owns logic. The UI framework for any given app is a replaceable detail.
 

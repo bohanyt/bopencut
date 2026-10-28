@@ -235,7 +235,7 @@ async function resolveVideoNode({
 	};
 }
 
-// Model 3D dirender 1024 px supaya tetap tajam saat dibesarkan hampir layar penuh.
+// Render 3D models at 1024 px to stay sharp when enlarged nearly fullscreen.
 const MODEL3D_SOURCE_SIZE = 1024;
 
 async function resolveModel3dNode({ node, context }: { node: Model3dNode; context: ResolveContext }): Promise<ResolvedVisualSourceNodeState | null> {

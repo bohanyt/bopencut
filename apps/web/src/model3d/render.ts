@@ -11,7 +11,7 @@ async function loadModel(id: string, file: File): Promise<THREE.Group> {
 	if (cached?.file === file) return cached.promise;
 	const promise = (async () => {
 		const data = await file.arrayBuffer();
-		// glTF dengan file pendamping tidak bisa dibaca dari satu file impor.
+		// glTF with external resources cannot be read from a single imported file.
 		if (/\.gltf$/i.test(file.name)) {
 			const json = JSON.parse(new TextDecoder().decode(data));
 			for (const resource of [...(json.buffers ?? []), ...(json.images ?? [])]) {

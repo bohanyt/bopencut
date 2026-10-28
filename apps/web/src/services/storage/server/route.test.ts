@@ -31,8 +31,8 @@ const request = (
 		...(body === undefined ? {} : { body: JSON.stringify(body) }),
 	});
 
-describe("adapter proyek", () => {
-	test("mendeteksi revisi lama dan migrasi tidak menghidupkan proyek yang dihapus", async () => {
+describe("project adapter", () => {
+	test("detects stale revisions and migration does not restore deleted projects", async () => {
 		const id = "test-project";
 		const first = { metadata: { id, name: "awal" } };
 		const created = await PUT(
@@ -64,7 +64,7 @@ describe("adapter proyek", () => {
 		expect((await migration.json()).skipped).toBe(true);
 		expect((await GET(request(id, "GET"), ctx(id))).status).toBe(404);
 	});
-	test("menolak origin asing dan ID traversal", async () => {
+	test("rejects foreign origins and traversal IDs", async () => {
 		expect(
 			(
 				await GET(

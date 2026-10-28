@@ -26,13 +26,13 @@ afterAll(async () => {
 	await fs.rm(root, { recursive: true, force: true });
 });
 
-describe("penyimpanan folder", () => {
-	test("menolak traversal dan ID yang bukan nama aman", () => {
+describe("folder storage", () => {
+	test("rejects traversal and unsafe IDs", () => {
 		for (const id of ["../lain", "..", "a/b", "a\\b", "C:foo", "", "a.b"])
 			expect(() => safeId(id)).toThrow();
 		expect(safeId("abc-123_ok")).toBe("abc-123_ok");
 	});
-	test("penulisan atomik dan antrean revisi", async () => {
+	test("atomic writes and revision queue", async () => {
 		const file = path.join(projectDir("project-1"), "project.json");
 		await Promise.all(
 			Array.from({ length: 10 }, (_, n) =>
@@ -54,7 +54,7 @@ describe("penyimpanan folder", () => {
 			),
 		).toBe(false);
 	});
-	test("media ditulis sekali dan range dapat dibaca", async () => {
+	test("writes media once and reads ranges", async () => {
 		const meta = {
 			id: "media-1",
 			fileName: "contoh.mp4",

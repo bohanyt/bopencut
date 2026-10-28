@@ -22,6 +22,6 @@ describe("edit log", () => {
  });
  test("aggregates counts, projects, median and threshold", () => {
   const lines = [diffEdits(snap(0), snap(1))[0], diffEdits(snap(1), snap(3))[0], { ...diffEdits(snap(3), snap(6))[0], projectId: "q" }];
-  expect(summarizeEdits(lines)[0]).toMatchObject({ count: 3, projects: 2, medianDelta: 2, kandidatAturan: true });
+  expect(summarizeEdits(lines)[0]).toMatchObject({ count: 3, projects: 2, medianDelta: 2, ruleCandidate: true });
  });
 });

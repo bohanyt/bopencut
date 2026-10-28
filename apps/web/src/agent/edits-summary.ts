@@ -14,6 +14,6 @@ export function summarizeEdits(lines: EditLine[]) {
 		const pairs = new Map<string, number>();
 		for (const e of entries) { const pair = JSON.stringify([e.from, e.to]); pairs.set(pair, (pairs.get(pair) ?? 0) + 1); }
 		const typical = JSON.parse([...pairs.entries()].sort((a, b) => b[1] - a[1])[0][0]);
-		return { track, elementType, field, count: entries.length, projects: new Set(entries.map((e) => e.projectId)).size, medianDelta: median(deltas), typical, kandidatAturan: entries.length >= 3 };
+		return { track, elementType, field, count: entries.length, projects: new Set(entries.map((e) => e.projectId)).size, medianDelta: median(deltas), typical, ruleCandidate: entries.length >= 3 };
 	}).sort((a, b) => a.track.localeCompare(b.track) || a.elementType.localeCompare(b.elementType) || a.field.localeCompare(b.field));
 }

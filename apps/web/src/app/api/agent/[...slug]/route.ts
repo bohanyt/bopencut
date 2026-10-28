@@ -1,8 +1,8 @@
-// Jembatan lokal OpenCut <-> agen (AI/skrip). Hanya untuk dev lokal (127.0.0.1).
+// Local OpenCut <-> agent bridge (AI/scripts). For local development only (127.0.0.1).
 //
-// AGENT_WORKSPACE   folder kerja agen: bundle/bundle.json, sync/<projectId>.json,
-//                   project.json (proyek terakhir yang disinkron), draft.json, draft-result.json
-// AGENT_FILES_ROOT  akar path aset di bundle (default = AGENT_WORKSPACE). Tidak ada file di luar akar ini yang dilayani.
+// AGENT_WORKSPACE   agent workspace: bundle/bundle.json, sync/<projectId>.json,
+//                   project.json (last synced project), draft.json, draft-result.json
+// AGENT_FILES_ROOT  bundle asset root (default = AGENT_WORKSPACE). Files outside this root are not served.
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -17,7 +17,7 @@ const json = (data: Buffer | string) => new Response(typeof data === "string" ? 
 
 function inside(rel: string) {
 	const full = path.resolve(FILES_ROOT, rel);
-	if (!full.startsWith(FILES_ROOT + path.sep)) throw new Error("Path di luar AGENT_FILES_ROOT");
+	if (!full.startsWith(FILES_ROOT + path.sep)) throw new Error("Path outside AGENT_FILES_ROOT");
 	return full;
 }
 
@@ -44,7 +44,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
 	} catch (error) {
 		return Response.json({ error: String(error) }, { status: 404 });
 	}
-	return Response.json({ error: "Tidak ditemukan" }, { status: 404 });
+	return Response.json({ error: "Not found" }, { status: 404 });
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string[] }> }) {
@@ -54,7 +54,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 	if (slug[0] === "frame") {
 		const form = await req.formData();
 		const rev = form.get("rev"); const time = form.get("time"); const image = form.get("image");
-		if (typeof rev !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(rev) || typeof time !== "string" || !/^(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(time) || !(image instanceof File) || image.type !== "image/jpeg") return Response.json({ error: "Frame tidak valid" }, { status: 400 });
+		if (typeof rev !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(rev) || typeof time !== "string" || !/^(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(time) || !(image instanceof File) || image.type !== "image/jpeg") return Response.json({ error: "Invalid frame" }, { status: 400 });
 		const file = `frames/${rev}/${time}.jpg`;
 		await fs.mkdir(path.join(WORKSPACE, "frames", rev), { recursive: true });
 		await fs.writeFile(path.join(WORKSPACE, "frames", rev, `${time}.jpg`), Buffer.from(await image.arrayBuffer()));
@@ -74,7 +74,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 	}
 	if (slug[0] === "edits") {
 		const lines = await req.json();
-		if (!Array.isArray(lines) || !lines.length || lines.some((line) => typeof line.projectId !== "string" || !/^[a-zA-Z0-9-]+$/.test(line.projectId) || line.projectId !== lines[0].projectId || line.actor !== "user")) return Response.json({ error: "Log tidak valid" }, { status: 400 });
+		if (!Array.isArray(lines) || !lines.length || lines.some((line) => typeof line.projectId !== "string" || !/^[a-zA-Z0-9-]+$/.test(line.projectId) || line.projectId !== lines[0].projectId || line.actor !== "user")) return Response.json({ error: "Invalid log" }, { status: 400 });
 		const dir = path.join(WORKSPACE, "edits");
 		await fs.mkdir(dir, { recursive: true });
 		await fs.appendFile(path.join(dir, `${lines[0].projectId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
@@ -85,7 +85,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 		return Response.json({ ok: true });
 	}
 	if (slug[0] === "gif") {
-		// GIF -> MP4 bisu (diputar 3x) supaya bergerak di timeline; OpenCut menggambar GIF sebagai gambar diam.
+		// GIF -> silent MP4 (looped 3x) for timeline animation; OpenCut renders GIFs as still images.
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "oc-gif-"));
 		try {
 			await fs.writeFile(path.join(dir, "in.gif"), Buffer.from(await req.arrayBuffer()));
@@ -95,5 +95,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 			await fs.rm(dir, { recursive: true, force: true });
 		}
 	}
-	return Response.json({ error: "Tidak ditemukan" }, { status: 404 });
+	return Response.json({ error: "Not found" }, { status: 404 });
 }

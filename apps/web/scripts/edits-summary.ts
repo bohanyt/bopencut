@@ -5,7 +5,7 @@ import type { EditLine } from "../src/agent/edit-log";
 
 const args = process.argv.slice(2);
 const workspaces = args.filter((arg) => arg !== "--json");
-if (!workspaces.length) { console.error("Pakai: bun apps/web/scripts/edits-summary.ts <workspace> [workspace...] [--json]"); process.exit(1); }
+if (!workspaces.length) { console.error("Usage: bun apps/web/scripts/edits-summary.ts <workspace> [workspace...] [--json]"); process.exit(1); }
 const lines: EditLine[] = [];
 for (const workspace of workspaces) {
 	const dir = path.join(workspace, "edits");
@@ -14,13 +14,13 @@ for (const workspace of workspaces) {
 	for (const file of files.filter((name) => name.endsWith(".jsonl"))) {
 		const text = await readFile(path.join(dir, file), "utf8");
 		for (const [index, line] of text.split(/\r?\n/).entries()) if (line.trim()) {
-			try { lines.push(JSON.parse(line)); } catch { throw new Error(`${path.join(dir, file)}:${index + 1}: JSON tidak valid`); }
+			try { lines.push(JSON.parse(line)); } catch { throw new Error(`${path.join(dir, file)}:${index + 1}: Invalid JSON`); }
 		}
 	}
 }
 const summary = summarizeEdits(lines);
 if (args.includes("--json")) console.log(JSON.stringify(summary, null, 2));
 else {
-	console.log("# Ringkasan edit\n");
-	for (const p of summary) console.log(`- **${p.track} / ${p.elementType} / ${p.field}**: ${p.count} kali, ${p.projects} proyek; median delta ${p.medianDelta ?? "?"}; paling sering ${JSON.stringify(p.typical[0])} → ${JSON.stringify(p.typical[1])}${p.kandidatAturan ? " — **kandidat aturan**" : ""}`);
+	console.log("# Edit summary\n");
+	for (const p of summary) console.log(`- **${p.track} / ${p.elementType} / ${p.field}**: ${p.count} times, ${p.projects} projects; median delta ${p.medianDelta ?? "?"}; most often ${JSON.stringify(p.typical[0])} → ${JSON.stringify(p.typical[1])}${p.ruleCandidate ? " — **rule candidate**" : ""}`);
 }

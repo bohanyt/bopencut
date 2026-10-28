@@ -2,7 +2,7 @@
 
 **bopencut** adalah editor video web tempat **manusia dan AI mengedit timeline yang sama**. AI menyusun draf video dari skrip; kamu menggeser, memotong, dan menata di UI seperti CapCut; lalu AI merapikan bagian yang kamu tunjuk. Semua perubahan AI bisa di-Undo, dan editanmu tidak tertimpa.
 
-> bopencut adalah fork dari **OpenCut (classic)** buatan tim [OpenCut](https://github.com/opencut-app/opencut), lisensi MIT (lihat [`LICENSE`](LICENSE)). Editor dasarnya sepenuhnya karya mereka. README asli OpenCut: [`docs/opencut-readme-asli.md`](docs/opencut-readme-asli.md).
+> bopencut adalah fork dari **OpenCut (classic)** buatan tim [OpenCut](https://github.com/opencut-app/opencut), lisensi MIT (lihat [`LICENSE`](LICENSE)). Editor dasarnya sepenuhnya karya mereka. README asli OpenCut: [`docs/opencut-readme-asli.md`](docs/opencut-original-readme.md).
 
 ## Yang bisa dilakukan
 

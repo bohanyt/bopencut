@@ -1,4 +1,4 @@
-// Elemen dari agen (bundle/draf) -> elemen timeline OpenCut asli.
+// Agent elements (bundle/draft) -> native OpenCut timeline elements.
 import { EditorCore } from "@/core";
 import { processMediaAssets } from "@/media/processing";
 import { buildElementFromMedia, buildEffectElement, buildGraphicElement, buildTextElement } from "@/timeline/element-utils";
@@ -20,21 +20,21 @@ export type PendingKeyframe = { trackId: string; elementId: string; propertyPath
 
 export const secs = (seconds: number) => mediaTimeFromSeconds({ seconds });
 
-/** Ambil file dari AGENT_FILES_ROOT dan daftarkan sebagai media proyek aktif. */
+/** Fetch a file from AGENT_FILES_ROOT and register it as media in the active project. */
 export async function loadAgentAsset({ projectId, asset }: { projectId: string; asset: AgentAsset }): Promise<LoadedMedia> {
 	const editor = EditorCore.getInstance();
 	const res = await fetch(`/api/agent/file?p=${encodeURIComponent(asset.path)}`);
-	if (!res.ok) throw new Error("Aset tidak terbaca: " + asset.path);
+	if (!res.ok) throw new Error("Cannot read asset: " + asset.path);
 	const blob = await res.blob();
 	const fileName = asset.path.split("/").pop() ?? asset.name;
 	const [processed] = await processMediaAssets({ files: [new File([blob], fileName, { type: blob.type })] });
-	if (!processed) throw new Error("Aset gagal diproses: " + asset.path);
+	if (!processed) throw new Error("Failed to process asset: " + asset.path);
 	const saved = await editor.media.addMediaAsset({ projectId, asset: { ...processed, name: asset.name } });
-	if (!saved) throw new Error("Aset gagal disimpan: " + asset.path);
+	if (!saved) throw new Error("Failed to save asset: " + asset.path);
 	return { id: saved.id, type: asset.type === "model" ? "model" : processed.type as AgentAsset["type"], width: processed.width, height: processed.height, duration: processed.duration };
 }
 
-/** Bangun elemen OpenCut. Keyframe dikumpulkan ke `keyframes` (waktu dalam detik, relatif elemen). */
+/** Build an OpenCut element. Keyframes are collected in `keyframes` (time in seconds, relative to the element). */
 export function buildAgentElement({ e, media, trackId, canvas, keyframes }: {
 	e: AgentElement; media?: LoadedMedia; trackId: string; canvas: { width: number; height: number }; keyframes: PendingKeyframe[];
 }): any {
@@ -54,7 +54,7 @@ export function buildAgentElement({ e, media, trackId, canvas, keyframes }: {
 		return el;
 	}
 	if (e.icon) {
-		if (!e.icon.svg) throw new Error("Ikon belum dimuat: " + e.icon.name);
+		if (!e.icon.svg) throw new Error("Icon not loaded: " + e.icon.name);
 		e = { ...e, graphic: { definitionId: "icon", params: { iconName: e.icon.name, color: e.icon.color ?? "#ffffff", svg: e.icon.svg } } };
 	}
 	if (e.graphic) {
@@ -72,8 +72,8 @@ export function buildAgentElement({ e, media, trackId, canvas, keyframes }: {
 		}
 		return el;
 	}
-	if (e.model3d && media?.type !== "model") throw new Error("Aset model tidak ada untuk " + e.name);
-	if (!media) throw new Error("Aset tidak ada untuk " + e.name);
+	if (e.model3d && media?.type !== "model") throw new Error("Model asset missing for " + e.name);
+	if (!media) throw new Error("Asset missing for " + e.name);
 	const el: any = { ...buildElementFromMedia({ mediaId: media.id, mediaType: media.type === "model" ? "image" : media.type, name: e.name, duration: secs(e.duration), startTime: secs(e.start) }), id: generateUUID(), agentId: e.agent_id, groupId: e.group };
 	if (e.model3d) Object.assign(el.params, e.model3d.params ?? {});
 	const trimStart = e.trimStart ?? 0;
