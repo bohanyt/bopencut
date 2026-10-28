@@ -365,6 +365,17 @@ class StorageService {
 	}): Promise<MediaAsset | null> {
 		const metadata = (await this.projectsAdapter.mediaList(projectId)).find((item) => item.id === id);
 		if (!metadata) return null;
+		return this.readMediaAsset({ projectId, metadata });
+	}
+
+	private async readMediaAsset({
+		projectId,
+		metadata,
+	}: {
+		projectId: string;
+		metadata: MediaAssetData;
+	}): Promise<MediaAsset> {
+		const id = metadata.id;
 		const url = this.projectsAdapter.mediaUrl(projectId, id);
 		const response = await fetch(url);
 		if (!response.ok) throw new Error(`Media ${id} cannot be read`);
@@ -387,22 +398,34 @@ class StorageService {
 		};
 	}
 
+	/** Loads every media asset: the metadata list is fetched once and files are read with bounded concurrency. */
 	async loadAllMediaAssets({
 		projectId,
+		concurrency = 8,
+		onProgress,
 	}: {
 		projectId: string;
+		concurrency?: number;
+		onProgress?: (progress: { loaded: number; total: number }) => void;
 	}): Promise<MediaAsset[]> {
-		const mediaIds = (await this.projectsAdapter.mediaList(projectId)).map((item) => item.id);
-		const mediaItems: MediaAsset[] = [];
-
-		for (const id of mediaIds) {
-			const item = await this.loadMediaAsset({ projectId, id });
-			if (item) {
-				mediaItems.push(item);
+		const list = await this.projectsAdapter.mediaList(projectId);
+		const items: (MediaAsset | null)[] = new Array(list.length).fill(null);
+		let next = 0;
+		let loaded = 0;
+		const worker = async () => {
+			while (next < list.length) {
+				const index = next++;
+				try {
+					items[index] = await this.readMediaAsset({ projectId, metadata: list[index] });
+				} catch (error) {
+					console.error(`Failed to load media ${list[index].id}:`, error);
+				}
+				loaded++;
+				onProgress?.({ loaded, total: list.length });
 			}
-		}
-
-		return mediaItems;
+		};
+		await Promise.all(Array.from({ length: Math.min(Math.max(1, concurrency), list.length) }, worker));
+		return items.filter((item): item is MediaAsset => item !== null);
 	}
 
 	async deleteMediaAsset({
