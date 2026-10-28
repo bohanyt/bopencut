@@ -1,11 +1,4 @@
-import {
-	afterEach,
-	beforeEach,
-	describe,
-	expect,
-	mock,
-	test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
 	decodePersistedKeybindingsState,
 	migratePersistedKeybindingsState,
@@ -123,9 +116,9 @@ describe("parseImportedKeybindings", () => {
 	});
 
 	test("throws on non-string action values", () => {
-		expect(() =>
-			parseImportedKeybindings({ config: { space: 42 } }),
-		).toThrow(/expected string/);
+		expect(() => parseImportedKeybindings({ config: { space: 42 } })).toThrow(
+			/expected string/,
+		);
 	});
 
 	test("throws on invalid shortcut keys", () => {
@@ -134,6 +127,18 @@ describe("parseImportedKeybindings", () => {
 				config: { "shift+bogus": "toggle-play" },
 			}),
 		).toThrow(/shift\+bogus/);
+	});
+
+	test("rejects actions requiring arguments and invalid modifier combinations", () => {
+		expect(() =>
+			parseImportedKeybindings({ config: { x: "remove-media-asset" } }),
+		).toThrow(/remove-media-asset/);
+		expect(() =>
+			parseImportedKeybindings({ config: { "shift+ctrl+x": "split" } }),
+		).toThrow(/shortcut/);
+		expect(() =>
+			parseImportedKeybindings({ config: { x: "toString" } }),
+		).toThrow(/toString/);
 	});
 
 	test("throws on invalid actions", () => {
