@@ -36,10 +36,14 @@ export class GraphicNode extends VisualNode<
 		resolvedParams,
 		width = DEFAULT_GRAPHIC_SOURCE_SIZE,
 		height = DEFAULT_GRAPHIC_SOURCE_SIZE,
+		logicalWidth = width,
+		logicalHeight = height,
 	}: {
 		resolvedParams: ParamValues;
 		width?: number;
 		height?: number;
+		logicalWidth?: number;
+		logicalHeight?: number;
 	}): OffscreenCanvas {
 		const definition = getGraphicDefinition({
 			definitionId: this.params.definitionId,
@@ -49,6 +53,8 @@ export class GraphicNode extends VisualNode<
 			params: resolvedParams,
 			width,
 			height,
+			logicalWidth,
+			logicalHeight,
 		});
 		if (this.cachedSource && this.cachedKey === cacheKey) {
 			return this.cachedSource;
@@ -59,11 +65,12 @@ export class GraphicNode extends VisualNode<
 			height,
 		});
 
+		context.scale(width / logicalWidth, height / logicalHeight);
 		definition.render({
 			ctx: context,
 			params: resolvedParams,
-			width,
-			height,
+			width: logicalWidth,
+			height: logicalHeight,
 		});
 
 		this.cachedKey = cacheKey;

@@ -47,7 +47,7 @@ Bookmark pada ruler juga menjadi catatan: tekan tombol bookmark di playhead (pil
 
 Tambahkan operasi `{op:"note", text, start, end?, match?:[{agentId}|{id}]}` atau `{op:"resolve-note", id}` atau `{op:"reply-note", id, text}` ke `ops` pada draf. Hasilnya termasuk id catatan dan status per operasi di `draft-result.json`, dan seluruh draf tetap satu Undo. Karena bookmark memakai satu posisi per frame, penambahan pada posisi yang sudah ada ditolak dan dilaporkan.
 
-Tulis `frames-request.json`: `{rev:"ambil-1", times:[0,1,2], width:960}`. `rev` hanya boleh berisi huruf, angka, `_`, atau `-`; waktu harus di dalam timeline. `width` opsional (default 960, maksimal 4096), tinggi mengikuti rasio kanvas. Editor aktif memproses permintaan saat tidak ada drag; `frames-result.json` berisi `{rev,files:["frames/ambil-1/0.jpg",...],projectId}` setelah semua frame tersimpan. Gunakan `rev` baru untuk permintaan berikutnya.
+Tulis `frames-request.json`: `{rev:"ambil-1", times:[0,1,2], width:960}`. `rev` hanya boleh berisi huruf, angka, `_`, atau `-`; waktu harus di dalam timeline. `width` opsional (default 960, maksimal 4096; frame selalu dirender resolusi penuh lalu diperkecil), tinggi mengikuti rasio kanvas. Editor aktif memproses permintaan saat tidak ada drag; `frames-result.json` berisi `{rev,files:["frames/ambil-1/0.jpg",...],projectId}` setelah semua frame tersimpan. Gunakan `rev` baru untuk permintaan berikutnya.
 
 ## Model 3D
 Aset `type:"model"` menerima GLB atau glTF dengan sumber daya tertanam. Pada elemen, gunakan `model3d:{params:{rotationY:0,modelScale:1,cameraDistance:3.5,cameraFov:45,lightIntensity:2,lightX:3,lightY:4,lightZ:5}}`; `rotationX/Y/Z` dalam derajat. Parameter angka dapat dianimasikan lewat `keyframes` (mis. `path:"rotationY"`). Transform dan opacity bekerja seperti elemen gambar.
@@ -57,3 +57,5 @@ Elemen grafik dapat memakai `graphic:{definitionId:"line"|"arrow"|"path"|"rectan
 Ikon dapat ditambah dengan `icon:{name:"lucide:server",color:"#ffffff"}` pada trek `graphic`; data ikon diambil saat impor dan warnanya dapat diubah di editor.
 Teks dapat ditambah dengan `text:"Isi teks"` pada trek `text`; atribut teks dapat diatur melalui `params`.
 `group` disimpan dan dilaporkan sebagai `groupId`. Klik memilih grup, klik ganda memilih anggota, dan Ctrl+G / Ctrl+Shift+G membuat atau melepas grup.
+
+Kualitas preview dapat dipilih di toolbar: Penuh, ½ (default), atau ¼. Pilihan tersimpan di browser dan tidak mengurangi kualitas ekspor atau frame agen.

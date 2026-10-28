@@ -24,6 +24,7 @@ import { PREVIEW_ZOOM_PRESETS } from "@/preview/zoom";
 import { usePreviewViewport } from "./preview-viewport";
 import { GridPopover } from "./guide-popover";
 import { usePreviewStore } from "@/preview/preview-store";
+import { isPreviewQuality } from "@/preview/quality";
 import type { MediaTime } from "@/wasm";
 
 export function PreviewToolbar({
@@ -36,6 +37,7 @@ export function PreviewToolbar({
 			<TimecodeDisplay />
 			<PlayPauseButton />
 			<div className="justify-self-end flex items-center gap-2.5">
+				<QualitySelect />
 				<ZoomSelect />
 				<Separator orientation="vertical" className="h-4" />
 				{/* v0.4.0 */}
@@ -95,6 +97,29 @@ function TimecodeDisplay() {
 				})}
 			</span>
 		</div>
+	);
+}
+
+function QualitySelect() {
+	const quality = usePreviewStore((state) => state.quality);
+	const setQuality = usePreviewStore((state) => state.setQuality);
+	const labels = { full: "Penuh", half: "\u00bd", quarter: "\u00bc" };
+	return (
+		<Select
+			value={quality}
+			onValueChange={(value) => {
+				if (isPreviewQuality(value)) setQuality(value);
+			}}
+		>
+			<SelectTrigger aria-label="Kualitas preview">
+				{labels[quality]}
+			</SelectTrigger>
+			<SelectContent>
+				<SelectItem value="full">Penuh</SelectItem>
+				<SelectItem value="half">{"\u00bd"}</SelectItem>
+				<SelectItem value="quarter">{"\u00bc"}</SelectItem>
+			</SelectContent>
+		</Select>
 	);
 }
 

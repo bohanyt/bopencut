@@ -1,3 +1,4 @@
+import { isPreviewQuality, type PreviewQuality } from "@/preview/quality";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { isGuideId, type GuideId } from "@/guides";
@@ -7,6 +8,7 @@ import type { GridConfig } from "@/guides/types";
 type PreviewOverlaysState = Record<string, boolean>;
 
 interface PersistedPreviewState {
+	quality?: PreviewQuality;
 	activeGuide?: string | null;
 	layoutGuide?: {
 		platform?: string | null;
@@ -16,6 +18,8 @@ interface PersistedPreviewState {
 }
 
 interface PreviewState {
+	quality: PreviewQuality;
+	setQuality: (quality: PreviewQuality) => void;
 	activeGuide: GuideId | null;
 	overlays: PreviewOverlaysState;
 	gridConfig: GridConfig;
@@ -49,6 +53,8 @@ function getPersistedActiveGuide(
 export const usePreviewStore = create<PreviewState>()(
 	persist(
 		(set) => ({
+			quality: "half",
+			setQuality: (quality) => set({ quality }),
 			activeGuide: null,
 			overlays: DEFAULT_PREVIEW_OVERLAYS,
 			gridConfig: DEFAULT_GRID_CONFIG,
@@ -81,11 +87,12 @@ export const usePreviewStore = create<PreviewState>()(
 		}),
 		{
 			name: "preview-settings",
-			version: 6,
+			version: 7,
 			migrate: (persistedState) => {
 				const state = persistedState as PersistedPreviewState | undefined;
 
 				return {
+					quality: isPreviewQuality(state?.quality) ? state.quality : "half",
 					activeGuide: getPersistedActiveGuide(state),
 					overlays: DEFAULT_PREVIEW_OVERLAYS,
 					gridConfig: {
@@ -95,6 +102,7 @@ export const usePreviewStore = create<PreviewState>()(
 				};
 			},
 			partialize: (state) => ({
+				quality: state.quality,
 				activeGuide: state.activeGuide,
 				overlays: state.overlays,
 				gridConfig: state.gridConfig,
