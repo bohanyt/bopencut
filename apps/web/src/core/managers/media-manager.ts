@@ -90,15 +90,21 @@ export class MediaManager {
 		this.isLoading = true;
 		this.notify();
 
+		// Large projects take a while: show progress so the editor does not look frozen.
+		const toastId = `load-media-${projectId}`;
 		try {
 			const mediaAssets = await storageService.loadAllMediaAssets({
 				projectId,
+				onProgress: ({ loaded, total }) => {
+					if (total >= 20) toast.loading(`Loading media ${loaded}/${total}`, { id: toastId });
+				},
 			});
 			this.assets = mediaAssets;
 			this.notify();
 		} catch (error) {
 			console.error("Failed to load media assets:", error);
 		} finally {
+			toast.dismiss(toastId);
 			this.isLoading = false;
 			this.notify();
 		}
