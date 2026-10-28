@@ -41,19 +41,41 @@ export type PendingKeyframe = { sceneId?: string; trackId: string; elementId: st
 
 export const secs = (seconds: number) => mediaTimeFromSeconds({ seconds });
 
-/** Fetch a file from AGENT_FILES_ROOT and register it as media in the active project. */
-export async function loadAgentAsset({ projectId, asset }: { projectId: string; asset: AgentAsset }): Promise<LoadedMedia> {
-	const editor = EditorCore.getInstance();
+/** Reads a file from AGENT_FILES_ROOT and processes it like a dropped file. */
+async function readAgentAsset(asset: AgentAsset) {
 	const res = await fetch(`/api/agent/file?p=${encodeURIComponent(asset.path)}`);
 	if (!res.ok) throw new Error("Cannot read asset: " + asset.path);
 	const blob = await res.blob();
 	const fileName = asset.path.split("/").pop() ?? asset.name;
 	const [processed] = await processMediaAssets({ files: [new File([blob], fileName, { type: blob.type })] });
 	if (!processed) throw new Error("Failed to process asset: " + asset.path);
+	return processed;
+}
+
+const loadedMedia = (asset: AgentAsset, id: string, processed: Awaited<ReturnType<typeof readAgentAsset>>): LoadedMedia =>
+	({ id, type: asset.type === "model" ? "model" : processed.type as AgentAsset["type"], width: processed.width, height: processed.height, duration: processed.duration });
+
+/** Fetch a file from AGENT_FILES_ROOT and register it as media in the active project (bundle import). */
+export async function loadAgentAsset({ projectId, asset }: { projectId: string; asset: AgentAsset }): Promise<LoadedMedia> {
+	const processed = await readAgentAsset(asset);
 	// Agent imports never raise the project frame rate: the bundle (or the open project) decides it.
-	const saved = await editor.media.addMediaAsset({ projectId, asset: { ...processed, name: asset.name }, ratchetFps: false });
+	const saved = await EditorCore.getInstance().media.addMediaAsset({ projectId, asset: { ...processed, name: asset.name }, ratchetFps: false });
 	if (!saved) throw new Error("Failed to save asset: " + asset.path);
-	return { id: saved.id, type: asset.type === "model" ? "model" : processed.type as AgentAsset["type"], width: processed.width, height: processed.height, duration: processed.duration };
+	return loadedMedia(asset, saved.id, processed);
+}
+
+/**
+ * Like loadAgentAsset, but the media stays private (staged) until the draft commits; `onId` gets
+ * its id before it is written, so a failed or cancelled draft can always remove it.
+ */
+export async function stageAgentAsset({ projectId, asset, onId }: { projectId: string; asset: AgentAsset; onId: (id: string) => void }): Promise<LoadedMedia> {
+	const processed = await readAgentAsset(asset);
+	try {
+		const staged = await EditorCore.getInstance().media.stageMediaAsset({ projectId, asset: { ...processed, name: asset.name }, onId });
+		return loadedMedia(asset, staged.id, processed);
+	} catch (error) {
+		throw new Error(`Failed to save asset: ${asset.path}: ${error instanceof Error ? error.message : String(error)}`);
+	}
 }
 
 /** Media already in the project, for an element with `mediaId` (`model3d` elements use it as a model). */

@@ -158,13 +158,15 @@ export function upsertAgentKeyframe<T extends TimelineElement>(element: T, k: Pi
 		if (strict) throw new Error(`cannot animate ${k.propertyPath} on ${element.type} ${element.name}`);
 		return element;
 	}
+	const invalid = () => new Error(`invalid value for ${k.propertyPath}: ${JSON.stringify(k.value)}`);
+	if (strict && (target.coerceValue({ value: k.value }) === null || (typeof k.value === "number" && !Number.isFinite(k.value)))) throw invalid();
 	const time = maxMediaTime({ a: ZERO_MEDIA_TIME, b: minMediaTime({ a: secs(k.time), b: element.duration }) });
-	return {
-		...element,
-		animations: upsertPathKeyframe({
-			animations: element.animations, propertyPath: k.propertyPath, time, value: k.value, interpolation: k.interpolation ?? "linear",
-			channelLayout: target.channelLayout, coerceValue: target.coerceValue,
-		}),
-	};
+	const animations = upsertPathKeyframe({
+		animations: element.animations, propertyPath: k.propertyPath, time, value: k.value, interpolation: k.interpolation ?? "linear",
+		channelLayout: target.channelLayout, coerceValue: target.coerceValue,
+	});
+	// upsertPathKeyframe returns the input unchanged when it cannot use the value.
+	if (strict && animations === element.animations) throw invalid();
+	return { ...element, animations };
 }
 

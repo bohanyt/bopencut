@@ -8,6 +8,7 @@ import {
 	mediaResponse,
 	projectDir,
 	readJson,
+	removeMedia,
 	revision,
 	safeId,
 	saveMedia,
@@ -115,5 +116,19 @@ describe("folder storage", () => {
 		expect(
 			(await fs.readdir(path.dirname(file))).filter((name) => name.endsWith(".tmp")),
 		).toEqual([]);
+	});
+	test("removing media also deletes a file whose metadata was never written", async () => {
+		const dir = path.join(projectDir("project-3"), "media");
+		await fs.mkdir(path.join(dir, "_metadata"), { recursive: true });
+		// A save that wrote the file, then failed writing its metadata.
+		await fs.writeFile(path.join(dir, "half.png"), "png");
+		await fs.writeFile(path.join(dir, "other.png"), "png");
+		await removeMedia("project-3", "half");
+		expect((await fs.readdir(dir)).sort()).toEqual(["_metadata", "other.png"]);
+		// With metadata: the file it names and the metadata go.
+		await saveMedia("project-3", "whole", { id: "whole", fileName: "w.jpg", fileType: "image/jpeg" }, new Blob(["jpg"]).stream());
+		await removeMedia("project-3", "whole");
+		expect((await fs.readdir(dir)).sort()).toEqual(["_metadata", "other.png"]);
+		expect(await fs.readdir(path.join(dir, "_metadata"))).toEqual([]);
 	});
 });

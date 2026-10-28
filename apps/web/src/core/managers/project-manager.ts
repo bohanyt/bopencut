@@ -105,6 +105,7 @@ export class ProjectManager {
 		try {
 			await storageService.saveProject({ project: newProject });
 			this.updateMetadata(newProject);
+			this.editor.save.initProject({ projectId: newProject.metadata.id, savedAt: new Date() });
 
 			return newProject.metadata.id;
 		} catch (error) {
@@ -133,6 +134,8 @@ export class ProjectManager {
 			const project = result.project;
 
 			this.active = project;
+			// What storage holds: its last write is the stored project's updatedAt.
+			this.editor.save.initProject({ projectId: id, savedAt: project.metadata.updatedAt });
 			this.notify();
 
 			if (project.scenes && project.scenes.length > 0) {
@@ -176,28 +179,43 @@ export class ProjectManager {
 
 	/** Writes the active project to storage; false when it failed (a toast reports it). */
 	async saveCurrentProject(): Promise<boolean> {
-		if (!this.active) return false;
+		const error = await this.persistCurrentProject();
+		if (error !== null) toast.error("Failed to save project", { id: "project-save-error", description: error });
+		return error === null;
+	}
 
+	/**
+	 * Writes the active project (current scenes) to storage and records the outcome in the save
+	 * manager. Returns null on success, else the error message.
+	 *
+	 * The active project object is not replaced: every editor component that reads it would
+	 * re-render (seconds on a large project) although nothing it shows changed. Only the project
+	 * list, which the editor does not show, gets the new metadata.
+	 */
+	async persistCurrentProject(): Promise<string | null> {
+		const active = this.active;
+		if (!active) return "No active project";
+		const projectId = active.metadata.id;
 		try {
 			const scenes = this.editor.scenes.getScenes();
-			const updatedProject = {
-				...this.active,
+			const persisted: TProject = {
+				...active,
 				scenes,
 				metadata: {
-					...this.active.metadata,
+					...active.metadata,
 					duration: getProjectDurationFromScenes({ scenes }),
 					updatedAt: new Date(),
 				},
 			};
-
-			await storageService.saveProject({ project: updatedProject });
-			this.active = updatedProject;
-			this.updateMetadata(updatedProject);
-			return true;
+			await storageService.saveProject({ project: persisted });
+			this.updateSavedMetadata(persisted.metadata);
+			this.editor.save.recordPersisted({ projectId, error: null });
+			return null;
 		} catch (error) {
 			console.error("Failed to save project:", error);
-			toast.error("Failed to save project", { description: error instanceof Error ? error.message : undefined });
-			return false;
+			const message = error instanceof Error ? error.message : String(error);
+			this.editor.save.recordPersisted({ projectId, error: message });
+			return message;
 		}
 	}
 
@@ -300,6 +318,7 @@ export class ProjectManager {
 	}
 
 	closeProject(): void {
+		if (this.active) storageService.forgetMediaManifest({ projectId: this.active.metadata.id });
 		this.active = null;
 		this.notify();
 
@@ -683,6 +702,12 @@ export class ProjectManager {
 
 		await this.updateThumbnail({ thumbnail: thumbnailDataUrl });
 		return true;
+	}
+
+	/** Project list entry only, without notifying (the editor does not show the list). */
+	private updateSavedMetadata(metadata: TProjectMetadata): void {
+		const index = this.savedProjects.findIndex((p) => p.id === metadata.id);
+		this.savedProjects = index === -1 ? [metadata, ...this.savedProjects] : this.savedProjects.with(index, metadata);
 	}
 
 	private updateMetadata(project: TProject): void {

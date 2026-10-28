@@ -140,10 +140,16 @@ export async function saveMedia(
 			createWriteStream(temp, { flags: "wx" }),
 		);
 		await renameWithRetry(temp, file);
-		await atomicWrite(
-			metaFile,
-			JSON.stringify({ ...metadata, diskFile: fileName }),
-		);
+		try {
+			await atomicWrite(
+				metaFile,
+				JSON.stringify({ ...metadata, diskFile: fileName }),
+			);
+		} catch (error) {
+			// Without metadata the file is unreachable: do not leave it behind.
+			await fs.rm(file, { force: true });
+			throw error;
+		}
 	} finally {
 		await fs.rm(temp, { force: true });
 	}
@@ -203,4 +209,21 @@ export async function mediaResponse(
 		) as unknown as ReadableStream,
 		{ status, headers },
 	);
+}
+
+/**
+ * Deletes a media file and its metadata. Also removes a file whose metadata write failed
+ * (`<mediaId>.<ext>` without metadata), so a failed import leaves nothing behind.
+ */
+export async function removeMedia(id: string, mediaId: string): Promise<void> {
+	const dir = path.join(projectDir(id), "media");
+	safeId(mediaId);
+	const metaFile = path.join(dir, "_metadata", `${mediaId}.json`);
+	const meta = await readJson(metaFile);
+	const own = new RegExp(`^${mediaId}\\.[a-z0-9]{1,10}$`);
+	const files = meta && own.test(meta.diskFile)
+		? [meta.diskFile as string]
+		: (await fs.readdir(dir).catch(() => [] as string[])).filter((name) => own.test(name));
+	for (const name of files) await retryTransient(() => fs.rm(path.join(dir, name), { force: true }));
+	await retryTransient(() => fs.rm(metaFile, { force: true }));
 }

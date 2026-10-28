@@ -158,6 +158,8 @@ export function computeAgentDraft({ scenes, rootSceneId, ops, mediaFor, canvas, 
 							const { animations: _dropped, ...rest } = next;
 							next = rest;
 						}
+						// Every key is checked against its animation target (strict) before the op counts:
+						// one invalid key fails the op, so a `replace` never ends with keys dropped.
 						for (const k of op.keyframes) {
 							for (const target of keyframeTargets(next, k)) next = upsertAgentKeyframe(next, { ...target, time: k.time, interpolation: k.interpolation }, { strict: true });
 						}
@@ -181,7 +183,8 @@ export function computeAgentDraft({ scenes, rootSceneId, ops, mediaFor, canvas, 
 				} as AgentElement;
 				result.agentId = element.agent_id;
 				const ref = op.track ?? { name: hit.track.name, id: hit.track.id };
-				const ctx: BuildContext = { canvas, keyframes: [], mediaFor, existing: list, created: [] };
+				// Media were loaded for the element as given; `element` is a new object built from it.
+				const ctx: BuildContext = { canvas, keyframes: [], mediaFor: (e) => mediaFor(e === element ? given as AgentElement : e), existing: list, created: [] };
 				// One edit: ripple editing sees a replacement, not a removal followed by an insertion.
 				const placed = editTracks(hit.sceneId, (tracks) => {
 					(orderedTracks(tracks).find((t) => t.id === hit.track.id) as any).elements.splice(hit.index, 1);

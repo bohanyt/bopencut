@@ -63,6 +63,8 @@ class StorageService {
 	 * MB with thumbnails).
 	 */
 	private manifests = new Map<string, Map<string, MediaAssetData>>();
+	/** Manifests kept at once (the open project and the one before it); older ones are dropped. */
+	private static readonly MANIFEST_LIMIT = 2;
 
 	constructor() {
 		this.config = {
@@ -332,6 +334,7 @@ class StorageService {
 
 	async deleteProject({ id }: { id: string }): Promise<void> {
 		await this.projectsAdapter.remove(id);
+		this.forgetMediaManifest({ projectId: id });
 	}
 
 	async saveMediaAsset({
@@ -377,8 +380,18 @@ class StorageService {
 
 	private async fetchManifest({ projectId }: { projectId: string }): Promise<Map<string, MediaAssetData>> {
 		const manifest = new Map((await this.projectsAdapter.mediaList(projectId)).map((item) => [item.id, item] as const));
+		this.manifests.delete(projectId);
 		this.manifests.set(projectId, manifest);
+		for (const id of this.manifests.keys()) {
+			if (this.manifests.size <= StorageService.MANIFEST_LIMIT) break;
+			this.manifests.delete(id);
+		}
 		return manifest;
+	}
+
+	/** Drops the cached media list of a project (closed or deleted). */
+	forgetMediaManifest({ projectId }: { projectId: string }): void {
+		this.manifests.delete(projectId);
 	}
 
 	private async readMediaAsset({
@@ -415,17 +428,20 @@ class StorageService {
 
 	/**
 	 * Loads every media asset: the metadata list is fetched once (and cached) and files are read with
-	 * bounded concurrency. Aborting `signal` stops starting new reads and rejects.
+	 * bounded concurrency. Aborting `signal` stops starting new reads and rejects. A file that cannot
+	 * be read is left out and reported through `onFailed`.
 	 */
 	async loadAllMediaAssets({
 		projectId,
 		concurrency = 8,
 		onProgress,
+		onFailed,
 		signal,
 	}: {
 		projectId: string;
 		concurrency?: number;
 		onProgress?: (progress: { loaded: number; total: number }) => void;
+		onFailed?: (failure: { id: string; name: string; error: string }) => void;
 		signal?: AbortSignal;
 	}): Promise<MediaAsset[]> {
 		const list = [...(await this.fetchManifest({ projectId })).values()];
@@ -441,6 +457,7 @@ class StorageService {
 				} catch (error) {
 					if (signal?.aborted) throw error;
 					console.error(`Failed to load media ${list[index].id}:`, error);
+					onFailed?.({ id: list[index].id, name: list[index].name, error: error instanceof Error ? error.message : String(error) });
 				}
 				loaded++;
 				onProgress?.({ loaded, total: list.length });

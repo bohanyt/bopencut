@@ -76,6 +76,8 @@ export class EditorCore {
 	}
 
 	static reset(): void {
+		// A pending (or retrying) save of the old instance must not fire after the reset.
+		EditorCore.instance?.save.stop();
 		EditorCore.instance = null;
 	}
 }

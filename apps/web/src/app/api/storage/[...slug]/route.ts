@@ -6,6 +6,7 @@ import {
 	mediaResponse,
 	projectDir,
 	readJson,
+	removeMedia,
 	revision,
 	safeId,
 	saveMedia,
@@ -175,18 +176,7 @@ async function handle(
 					});
 				if (method === "DELETE")
 					return await withProjectLock(id, async () => {
-						const dir = path.join(projectDir(id), "media");
-						const meta = await readJson(
-							path.join(dir, "_metadata", `${mediaId}.json`),
-						);
-						if (
-							meta &&
-							new RegExp(`^${mediaId}\\.[a-z0-9]{1,10}$`).test(meta.diskFile)
-						)
-							await fs.rm(path.join(dir, meta.diskFile), { force: true });
-						await fs.rm(path.join(dir, "_metadata", `${mediaId}.json`), {
-							force: true,
-						});
+						await removeMedia(id, mediaId);
 						return Response.json({ ok: true });
 					});
 			}
