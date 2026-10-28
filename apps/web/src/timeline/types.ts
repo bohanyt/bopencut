@@ -10,6 +10,12 @@ export type ElementRef = {
 };
 
 export interface Bookmark {
+	id?: string;
+	author?: "user" | "agent";
+	resolved?: boolean;
+	createdAt?: string;
+	elementIds?: string[];
+	replies?: { id: string; text: string; author: "user" | "agent"; createdAt: string }[];
 	time: MediaTime;
 	note?: string;
 	color?: string;

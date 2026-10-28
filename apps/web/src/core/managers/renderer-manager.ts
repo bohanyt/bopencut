@@ -78,7 +78,7 @@ export class RendererManager {
 		}
 	}
 
-	private async createSnapshot(): Promise<SnapshotResult> {
+	async createSnapshot({ time }: { time?: import("@/wasm").MediaTime } = {}): Promise<SnapshotResult> {
 		try {
 			const renderTree = this.getRenderTree();
 			const activeProject = this.editor.project.getActive();
@@ -94,7 +94,7 @@ export class RendererManager {
 
 			const { canvasSize, fps } = activeProject.settings;
 			const renderTime = Math.min(
-				this.editor.playback.getCurrentTime(),
+				time ?? this.editor.playback.getCurrentTime(),
 				this.editor.timeline.getLastFrameTime(),
 			);
 

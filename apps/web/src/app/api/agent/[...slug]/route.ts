@@ -35,6 +35,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
 			const full = inside(new URL(req.url).searchParams.get("p") ?? "");
 			return new Response(new Uint8Array(await fs.readFile(full)), { headers: { "Content-Type": TYPES[path.extname(full).toLowerCase()] ?? "application/octet-stream", "Cache-Control": "no-store" } });
 		}
+		if (slug[0] === "frames-request") {
+			try { return json(await fs.readFile(path.join(WORKSPACE, "frames-request.json"))); } catch { return Response.json(null); }
+		}
 		if (slug[0] === "draft") {
 			try { return json(await fs.readFile(path.join(WORKSPACE, "draft.json"))); } catch { return Response.json(null); }
 		}
@@ -48,6 +51,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 	const { slug } = await params;
 	const origin = req.headers.get("origin");
 	if (origin && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return Response.json({ error: "Origin ditolak" }, { status: 403 });
+	if (slug[0] === "frame") {
+		const form = await req.formData();
+		const rev = form.get("rev"); const time = form.get("time"); const image = form.get("image");
+		if (typeof rev !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(rev) || typeof time !== "string" || !/^(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(time) || !(image instanceof File) || image.type !== "image/jpeg") return Response.json({ error: "Frame tidak valid" }, { status: 400 });
+		const file = `frames/${rev}/${time}.jpg`;
+		await fs.mkdir(path.join(WORKSPACE, "frames", rev), { recursive: true });
+		await fs.writeFile(path.join(WORKSPACE, "frames", rev, `${time}.jpg`), Buffer.from(await image.arrayBuffer()));
+		return Response.json({ file });
+	}
+	if (slug[0] === "frames-result") {
+		await writeAtomic(path.join(WORKSPACE, "frames-result.json"), JSON.stringify(await req.json(), null, 1));
+		return Response.json({ ok: true });
+	}
 	if (slug[0] === "sync") {
 		const body = await req.json();
 		const text = JSON.stringify(body, null, 1);

@@ -1,11 +1,15 @@
 // Setiap perubahan timeline ditulis ke AGENT_WORKSPACE/project.json (detik, piksel),
 // supaya agen tahu lokasi/waktu/posisi tiap item tanpa membuka browser.
 import { EditorCore } from "@/core";
-import { TICKS_PER_SECOND } from "@/wasm";
+import { TICKS_PER_SECOND, roundMediaTime } from "@/wasm";
 import { toast } from "sonner";
 import { BatchCommand } from "@/commands";
 import { Command } from "@/commands/base-command";
 import { UpsertKeyframeCommand } from "@/commands/timeline";
+import { getFrameTime } from "@/timeline/bookmarks";
+import { pollFrames } from "./frames";
+import { validNote } from "./notes";
+import { AgentNotesCommand } from "./note-command";
 import type { SceneTracks } from "@/timeline/types";
 import { generateUUID } from "@/utils/id";
 import { createEditLogger, type EditSnapshot } from "./edit-log";
@@ -32,6 +36,7 @@ export function agentSnapshot() {
 		schema: "opencut-agent-sync-1", projectId: project.metadata.id, projectName: project.metadata.name, savedAt: new Date().toISOString(),
 		canvas: project.settings.canvasSize, fps: project.settings.fps,
 		note: "Waktu dalam detik. transform.positionX/Y = piksel dari pusat kanvas. overlay index 0 = paling atas.",
+		notes: scene.bookmarks.filter((b) => b.note?.trim()).map((b) => ({ id: b.id ?? `legacy-${b.time}`, text: b.note, start: s(b.time), ...(b.duration ? { end: s(b.time + b.duration) } : {}), elementIds: b.elementIds ?? [], replies: b.replies ?? [], author: b.author ?? "user", resolved: b.resolved ?? false, createdAt: b.createdAt ?? null })),
 		tracks: [...t.overlay.map((x, i) => lane(x, "overlay", i)), lane(t.main, "main", 0), ...t.audio.map((x, i) => lane(x, "audio", i))],
 	};
 }
@@ -77,6 +82,7 @@ export function installAgentBridge() {
 	(window as any).agent = { editor, snapshot: agentSnapshot, push, applyDraft };
 	push();
 	setInterval(pollDraft, 2000);
+	setInterval(pollFrames, 2000);
 }
 
 // Draf agen = daftar operasi per item (bukan proyek utuh), supaya editan manusia tidak tertimpa.
@@ -89,6 +95,9 @@ type Match = { agentId?: string; id?: string };
 type DraftOp =
 	| { op: "set"; match: Match; start?: number; duration?: number; trimStart?: number; params?: Record<string, unknown> }
 	| { op: "delete"; match: Match }
+	| { op: "note"; text: string; start: number; end?: number; match?: Match[] }
+	| { op: "resolve-note"; id: string }
+	| { op: "reply-note"; id: string; text: string }
 	| { op: "add"; track: { name: string; type?: "video" | "audio" | "effect"; index?: number }; element: AgentElement };
 type Draft = { schema: string; rev: string; label?: string; projectId?: string; ops: DraftOp[] };
 
@@ -156,6 +165,8 @@ export async function applyDraft(draft: Draft) {
 	const current = editor.scenes.getActiveScene().tracks;
 	const copy = (track: any) => ({ ...track, elements: [...track.elements] });
 	const next: SceneTracks = { main: copy(current.main), overlay: current.overlay.map(copy), audio: current.audio.map(copy) };
+	const bookmarks = [...editor.scenes.getActiveScene().bookmarks];
+	let notesChanged = false;
 	const allTracks = () => [...next.overlay, next.main, ...next.audio] as any[];
 	const find = (m: Match) => {
 		for (const track of allTracks()) {
@@ -189,6 +200,31 @@ export async function applyDraft(draft: Draft) {
 			}
 			continue;
 		}
+		if (op.op === "note") {
+			if (!validNote(op.text, op.start, op.end) || (op.match !== undefined && (!Array.isArray(op.match) || op.match.some((m) => !m || typeof m !== "object" || !((typeof m.id === "string" && m.id) || (typeof m.agentId === "string" && m.agentId)))))) {
+				results[i] = { op: op.op, ok: false, error: "catatan tidak valid" }; continue;
+			}
+			const time = getFrameTime({ time: secs(op.start), fps: project.settings.fps });
+			if (bookmarks.some((b) => b.time === time)) { results[i] = { op: op.op, ok: false, error: "bookmark sudah ada pada waktu ini" }; continue; }
+			const hits = (op.match ?? []).map((m) => find(m));
+			if (hits.some((hit) => !hit)) { results[i] = { op: op.op, ok: false, error: "item tidak ditemukan" }; continue; }
+			const id = generateUUID();
+			bookmarks.push({ id, time, note: op.text, duration: op.end === undefined ? undefined : roundMediaTime({ time: Math.max(0, secs(op.end) - time) }), elementIds: hits.map((hit) => hit!.track.elements[hit!.index].id), author: "agent", resolved: false, createdAt: new Date().toISOString() });
+			notesChanged = true; results[i] = { op: op.op, id, ok: true }; continue;
+		}
+		if (op.op === "reply-note") {
+			const index = bookmarks.findIndex((b) => (b.id ?? `legacy-${b.time}`) === op.id && b.note?.trim());
+			if (index < 0 || typeof op.text !== "string" || !op.text.trim()) { results[i] = { op: op.op, id: op.id, ok: false, error: "catatan atau balasan tidak valid" }; continue; }
+			const reply = { id: generateUUID(), text: op.text, author: "agent" as const, createdAt: new Date().toISOString() };
+			bookmarks[index] = { ...bookmarks[index], replies: [...(bookmarks[index].replies ?? []), reply] };
+			notesChanged = true; results[i] = { op: op.op, id: op.id, replyId: reply.id, ok: true }; continue;
+		}
+		if (op.op === "resolve-note") {
+			const index = bookmarks.findIndex((b) => (b.id ?? `legacy-${b.time}`) === op.id && b.note?.trim());
+			if (index < 0) { results[i] = { op: op.op, id: op.id, ok: false, error: "catatan tidak ditemukan" }; continue; }
+			bookmarks[index] = { ...bookmarks[index], resolved: true };
+			notesChanged = true; results[i] = { op: op.op, id: op.id, ok: true }; continue;
+		}
 		const hit = find(op.match);
 		if (!hit) {
 			results[i] = { op: op.op, match: op.match, ok: false, error: "item tidak ditemukan (mungkin sudah dihapus di editor)" };
@@ -214,6 +250,7 @@ export async function applyDraft(draft: Draft) {
 	}
 
 	const commands: Command[] = [new AgentDraftCommand(next)];
+	if (notesChanged) commands.push(new AgentNotesCommand(bookmarks));
 	for (const k of keyframes) {
 		commands.push(new UpsertKeyframeCommand({ trackId: k.trackId, elementId: k.elementId, propertyPath: k.propertyPath, time: secs(k.time), value: k.value, interpolation: "linear" }));
 	}
