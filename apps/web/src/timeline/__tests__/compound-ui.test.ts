@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { CompoundElement, TScene, TimelineElement } from "@/timeline";
 import type { TProject } from "@/project/types";
+import type { MediaAsset } from "@/media/types";
 import {
 	allElements,
 	allTracks,
@@ -25,8 +26,19 @@ const { getDefaultShortcuts } = await import("@/actions");
 const { v7ToV8 } = await import("@/actions/keybindings/migrations/v7-to-v8");
 const { getNextCompoundName, deepCopyCompoundElements } = await import("@/timeline/compound");
 const { getCompoundPath } = await import("@/timeline/compound-navigation");
-const { CompoundThumbnailCache, getCompoundThumbnailKey, getCompoundThumbnailTimes } =
-	await import("@/timeline/compound-thumbnails");
+const {
+	CompoundThumbnailCache,
+	getCompoundThumbnailKey,
+	getCompoundThumbnailTimes,
+	renderCompoundThumbnails,
+} = await import("@/timeline/compound-thumbnails");
+
+/** Media of the fixture clips (paste checks that the media is in the project). */
+function fixtureMedia(): MediaAsset[] {
+	return ["media-bg", "media-music"].map(
+		(id) => ({ id, name: id, type: id === "media-bg" ? "video" : "audio" }) as unknown as MediaAsset,
+	);
+}
 
 function setup(scenes: TScene[] = fixture()) {
 	EditorCore.reset();
@@ -42,6 +54,7 @@ function setup(scenes: TScene[] = fixture()) {
 		} as unknown as TProject,
 	});
 	editor.scenes.setScenes({ scenes, activeSceneId: "main" });
+	editor.media.setAssets({ assets: fixtureMedia() });
 	return editor;
 }
 
@@ -351,6 +364,7 @@ describe("compound clip UI: thumbnail cache", () => {
 				scenes: editor.scenes.getScenes(),
 				element: findCompound(editor.scenes.getScenes()),
 				canvasSize,
+				background: { type: "color", color: "#000000" },
 				mediaAssets,
 			});
 		const initial = keyOf();
@@ -421,5 +435,252 @@ describe("compound clip UI: thumbnail cache", () => {
 		cache.cancel("d");
 		await tick();
 		expect(renders).toEqual(["a", "b", "c"]);
+	});
+});
+
+describe("compound clip UI: review round 2", () => {
+	test("a copied inner compound breaks apart onto its copied parent's tracks", async () => {
+		const editor = setup();
+		// Outer holds the main-track video; inside it, the video becomes an inner compound on the
+		// outer scene's main track.
+		const outer = editor.timeline.createCompound({
+			elements: [{ trackId: "t-main", elementId: "bg" }, refs[0]],
+		});
+		await editor.scenes.enterCompound(outer.compound);
+		const outerScene = editor.scenes.getActiveScene();
+		const inner = editor.timeline.createCompound({ elements: [refOf(outerScene, "bg")] });
+		expect(inner.compound.trackId).toBe(sceneById(editor, outer.sceneId).tracks.main.id);
+		await editor.scenes.switchToScene({ sceneId: "main" });
+
+		const [copyRef] = editor.timeline.duplicateElements({
+			elements: [refOf(getHost(editor.scenes.getScenes()), outer.compound.elementId)],
+		});
+		const copy = compoundsIn(getHost(editor.scenes.getScenes())).find(
+			(c) => c.id === copyRef.elementId,
+		) as CompoundElement;
+		const copiedOuter = sceneById(editor, copy.sceneId);
+		const [copiedInner] = compoundsIn(copiedOuter);
+		const copiedOuterTrackIds = allTracks(copiedOuter.tracks).map((track) => track.id);
+		const origin = sceneById(editor, copiedInner.sceneId).compoundOrigin;
+		expect(origin?.hostTrackOrder.every((id) => copiedOuterTrackIds.includes(id))).toBe(true);
+		expect(Object.values(origin?.trackSources ?? {})).toEqual([copiedOuter.tracks.main.id]);
+
+		await editor.scenes.switchToScene({ sceneId: copy.sceneId });
+		const [restored] = editor.timeline.ungroupCompound(
+			refOf(editor.scenes.getActiveScene(), copiedInner.id),
+		);
+		expect(restored.trackId).toBe(copiedOuter.tracks.main.id);
+		expect(editor.scenes.getActiveScene().tracks.overlay.some((track) =>
+			track.elements.some((e) => e.id === restored.elementId),
+		)).toBe(false);
+	});
+
+	test("copied notes point at the copied elements", async () => {
+		const editor = setup();
+		const { compound, sceneId } = editor.timeline.createCompound({ elements: refs });
+		editor.scenes.setScenes({
+			scenes: editor.scenes.getScenes().map((s) =>
+				s.id === sceneId
+					? { ...s, bookmarks: [{ time: t(1), note: "fix this", elementIds: ["box", "title"] }] }
+					: s,
+			),
+		});
+		const [copyRef] = editor.timeline.duplicateElements({ elements: [compound] });
+		const copy = compoundsIn(getHost(editor.scenes.getScenes())).find(
+			(c) => c.id === copyRef.elementId,
+		) as CompoundElement;
+		const copied = sceneById(editor, copy.sceneId);
+		const copiedIds = allElements(allTracks(copied.tracks)).map((e) => e.id);
+		const [note] = copied.bookmarks;
+		expect(note.note).toBe("fix this");
+		expect(note.elementIds).toHaveLength(2);
+		expect(note.elementIds?.every((id) => copiedIds.includes(id))).toBe(true);
+		expect(sceneById(editor, sceneId).bookmarks[0].elementIds).toEqual(["box", "title"]);
+	});
+
+	test("duplicate and paste copies drop agentId (outer clip and every descendant)", async () => {
+		const tagged = fixture().map((s) => ({
+			...s,
+			tracks: {
+				overlay: s.tracks.overlay.map((track) => ({
+					...track,
+					elements: track.elements.map((e) => ({ ...e, agentId: `agent-${e.id}` })),
+				})),
+				main: {
+					...s.tracks.main,
+					elements: s.tracks.main.elements.map((e) => ({ ...e, agentId: `agent-${e.id}` })),
+				},
+				audio: s.tracks.audio,
+			},
+		})) as TScene[];
+		const editor = setup(tagged);
+		const { outer } = await nestedTwoDeep(editor);
+		const agentIdsIn = (sceneId: string): unknown[] => {
+			const target = sceneById(editor, sceneId);
+			return allElements(allTracks(target.tracks)).flatMap((e) => [
+				(e as { agentId?: unknown }).agentId,
+				...(e.type === "compound" ? agentIdsIn(e.sceneId) : []),
+			]);
+		};
+		const originalAgentIds = agentIdsIn(outer.sceneId).filter(Boolean);
+		expect(originalAgentIds.length).toBeGreaterThan(0);
+
+		const [dup] = editor.timeline.duplicateElements({
+			elements: [outer.compound, { trackId: "t-main", elementId: "bg" }],
+		});
+		editor.selection.setSelectedElements({ elements: [outer.compound] });
+		editor.clipboard.copy();
+		editor.clipboard.paste({ time: t(40) });
+		const [pasted] = editor.selection.getSelectedElements();
+
+		const host = getHost(editor.scenes.getScenes());
+		for (const ref of [dup, pasted]) {
+			const clip = compoundsIn(host).find((c) => c.id === ref.elementId) as CompoundElement;
+			expect((clip as { agentId?: unknown }).agentId).toBeUndefined();
+			expect(agentIdsIn(clip.sceneId).filter(Boolean)).toEqual([]);
+		}
+		const bgCopies = allElements(allTracks(host.tracks)).filter((e) => e.name === "bg (copy)");
+		expect(bgCopies).toHaveLength(1);
+		expect((bgCopies[0] as { agentId?: unknown }).agentId).toBeUndefined();
+		// The originals keep theirs.
+		expect(agentIdsIn(outer.sceneId).filter(Boolean)).toEqual(originalAgentIds);
+	});
+
+	test("paste refuses clips whose media is not in this project (compound and plain)", async () => {
+		const editor = setup();
+		editor.media.setAssets({ assets: [] });
+		const { compound } = editor.timeline.createCompound({ elements: [refs[0], refs[2]] });
+		const before = editor.scenes.getScenes();
+
+		editor.selection.setSelectedElements({ elements: [compound] });
+		expect(editor.clipboard.copy()).toBe(true);
+		expect(editor.clipboard.paste({ time: t(20) })).toBe(false);
+		editor.selection.setSelectedElements({ elements: [{ trackId: "t-main", elementId: "bg" }] });
+		expect(editor.clipboard.copy()).toBe(true);
+		expect(editor.clipboard.paste({ time: t(20) })).toBe(false);
+		expect(editor.scenes.getScenes()).toBe(before);
+
+		// With the media present the same clip pastes normally.
+		editor.media.setAssets({ assets: fixtureMedia() });
+		expect(editor.clipboard.paste({ time: t(20) })).toBe(true);
+
+		// Clips without media paste whatever the project holds.
+		editor.media.setAssets({ assets: [] });
+		editor.selection.setSelectedElements({
+			elements: [{ trackId: "t-gfx", elementId: "box" }],
+		});
+		expect(editor.clipboard.copy()).toBe(true);
+		expect(editor.clipboard.paste({ time: t(30) })).toBe(true);
+	});
+
+	test("a strip stops between frames when playback starts mid-strip", async () => {
+		const editor = setup();
+		const { compound } = editor.timeline.createCompound({ elements: refs });
+		const element = findCompound(editor.scenes.getScenes());
+		expect(element.id).toBe(compound.elementId);
+
+		// Direct render: playback starts while the first frame decodes.
+		let playing = false;
+		const statesAtFrames: boolean[] = [];
+		const result = await renderCompoundThumbnails({
+			editor,
+			element,
+			shouldStop: () => playing,
+			loadRenderer: async () => ({
+				renderAt: async () => {
+					statesAtFrames.push(playing);
+					playing = true;
+					return "frame";
+				},
+			}),
+		});
+		expect(result).toBeNull();
+		expect(statesAtFrames).toEqual([false]);
+	});
+
+	test("the cache hands a stop check to the strip, and re-queues it after playback pauses", async () => {
+		let busy = false;
+		const waits: Array<() => void> = [];
+		const cache = new CompoundThumbnailCache({
+			isBusy: () => busy,
+			wait: () => new Promise<void>((resolve) => waits.push(resolve)),
+		});
+		const busyAtFrames: boolean[] = [];
+		let playbackStarted = false;
+		cache.request("k", async ({ shouldStop }) => {
+			const frames: string[] = [];
+			for (let index = 0; index < 5; index++) {
+				if (shouldStop()) return null;
+				busyAtFrames.push(busy);
+				if (!playbackStarted) {
+					// Playback starts while the first frame decodes.
+					playbackStarted = true;
+					busy = true;
+				}
+				frames.push(`f${index}`);
+			}
+			return frames;
+		});
+		const tick = async () => {
+			waits.shift()?.();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		};
+		await tick(); // renders frame 0, then stops
+		expect(cache.get("k")).toBeUndefined();
+		await tick(); // still playing: waits
+		busy = false;
+		await tick(); // paused: the strip renders again, completely
+		expect(busyAtFrames.every((state) => state === false)).toBe(true);
+		expect(cache.get("k")).toEqual(["f0", "f1", "f2", "f3", "f4"]);
+	});
+
+	test("the thumbnail key includes the project background", () => {
+		const editor = setup();
+		editor.timeline.createCompound({ elements: refs });
+		const mediaAssets: object[] = [];
+		const keyFor = (background: unknown) =>
+			getCompoundThumbnailKey({
+				scenes: editor.scenes.getScenes(),
+				element: findCompound(editor.scenes.getScenes()),
+				canvasSize: { width: 1920, height: 1080 },
+				background,
+				mediaAssets,
+			});
+		expect(keyFor({ type: "color", color: "#000000" })).not.toBe(
+			keyFor({ type: "color", color: "#ffffff" }),
+		);
+		expect(keyFor({ type: "blur", blurIntensity: 8 })).not.toBe(
+			keyFor({ type: "color", color: "#000000" }),
+		);
+		expect(keyFor({ type: "color", color: "#000000" })).toBe(
+			keyFor({ type: "color", color: "#000000" }),
+		);
+	});
+
+	test("samples in the empty tail render at their own times, not the last content frame", async () => {
+		const editor = setup();
+		editor.timeline.createCompound({ elements: refs });
+		// Content 4 s long, clip widened to 10 s: the last samples fall in the empty tail.
+		const clip = { ...findCompound(editor.scenes.getScenes()), duration: t(10) };
+		const rendered: number[] = [];
+		let treeDuration = 0;
+		const frames = await renderCompoundThumbnails({
+			editor,
+			element: clip,
+			loadRenderer: async ({ duration }) => {
+				treeDuration = duration;
+				return {
+					renderAt: async (time) => {
+						rendered.push(time);
+						return `t${time}`;
+					},
+				};
+			},
+		});
+		const times = getCompoundThumbnailTimes({ element: clip });
+		expect(rendered).toEqual(times);
+		expect(times.at(-1)).toBeGreaterThan(t(4));
+		expect(treeDuration).toBeGreaterThan(times.at(-1) as number);
+		expect(frames).toHaveLength(5);
 	});
 });

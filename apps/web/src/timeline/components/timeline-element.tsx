@@ -1324,10 +1324,18 @@ function CompoundThumbnailStrip({ element }: { element: CompoundElement }) {
 	const scenes = useEditor((e) => e.scenes.getScenes());
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const canvasSize = useEditor((e) => e.project.getActive().settings.canvasSize);
+	const background = useEditor((e) => e.project.getActive().settings.background);
 	const cache = getCompoundThumbnailCache({ editor });
 	const key = useMemo(
-		() => getCompoundThumbnailKey({ scenes, element, canvasSize, mediaAssets }),
-		[scenes, element, canvasSize, mediaAssets],
+		() =>
+			getCompoundThumbnailKey({
+				scenes,
+				element,
+				canvasSize,
+				background,
+				mediaAssets,
+			}),
+		[scenes, element, canvasSize, background, mediaAssets],
 	);
 	const frames = useSyncExternalStore(
 		(listener) => cache.subscribe(listener),
@@ -1337,7 +1345,9 @@ function CompoundThumbnailStrip({ element }: { element: CompoundElement }) {
 
 	useEffect(() => {
 		if (cache.get(key)) return;
-		cache.request(key, () => renderCompoundThumbnails({ editor, element }));
+		cache.request(key, ({ shouldStop }) =>
+			renderCompoundThumbnails({ editor, element, shouldStop }),
+		);
 		return () => cache.cancel(key);
 	}, [cache, key, editor, element]);
 

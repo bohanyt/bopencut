@@ -43,17 +43,19 @@ function tokenOf(value: object): number {
  * Cache key of a clip's strip. Tracks are immutable, so the identity of the nested scene's tracks
  * and of every scene it reaches changes exactly when the content does (edits at any depth
  * invalidate, unrelated scenes do not, and an undo brings the old strip back). The visible
- * window, canvas, and media list are part of it too.
+ * window, canvas, project background, and media list are part of it too.
  */
 export function getCompoundThumbnailKey({
 	scenes,
 	element,
 	canvasSize,
+	background,
 	mediaAssets,
 }: {
 	scenes: TScene[];
 	element: CompoundElement;
 	canvasSize: { width: number; height: number };
+	background: unknown;
 	mediaAssets: object;
 }): string {
 	const reached = collectCompoundScenes({ scenes, elements: [element] })
@@ -65,11 +67,13 @@ export function getCompoundThumbnailKey({
 		element.trimStart,
 		element.duration,
 		`${canvasSize.width}x${canvasSize.height}`,
+		JSON.stringify(background),
 		tokenOf(mediaAssets),
 	].join("|");
 }
 
-type RenderFrames = () => Promise<string[]>;
+/** Renders a strip; returns null when it stopped early because `shouldStop` turned true. */
+type RenderFrames = (control: { shouldStop: () => boolean }) => Promise<string[] | null>;
 
 /** Rendered strips by key (least recently used dropped first) and the queue that fills them. */
 export class CompoundThumbnailCache {
@@ -77,10 +81,11 @@ export class CompoundThumbnailCache {
 	private queue = new Map<string, RenderFrames>();
 	private listeners = new Set<() => void>();
 	private running = false;
+	private active: { key: string; cancelled: boolean } | null = null;
 
 	constructor(
 		private options: {
-			/** Rendering waits while this is true (e.g. during playback). */
+			/** Rendering waits, and a running strip suspends, while this is true (playback). */
 			isBusy: () => boolean;
 			wait: (ms: number) => Promise<void>;
 			limit?: number;
@@ -96,16 +101,21 @@ export class CompoundThumbnailCache {
 		return frames;
 	}
 
-	/** Queues a render unless the key is cached or queued; the newest request renders first. */
+	/** Queues a render unless the key is cached, queued, or rendering; the newest renders first. */
 	request(key: string, render: RenderFrames): void {
+		if (this.active?.key === key) {
+			this.active.cancelled = false;
+			return;
+		}
 		if (this.frames.has(key) || this.queue.has(key)) return;
 		this.queue.set(key, render);
 		void this.drain();
 	}
 
-	/** Drops queued renders no clip shows any more (e.g. stale keys after an edit). */
+	/** Drops renders no clip shows any more (e.g. stale keys after an edit), even a running one. */
 	cancel(key: string): void {
 		this.queue.delete(key);
+		if (this.active?.key === key) this.active.cancelled = true;
 	}
 
 	subscribe(listener: () => void): () => void {
@@ -124,10 +134,23 @@ export class CompoundThumbnailCache {
 				if (!newest || this.options.isBusy()) continue;
 				const [key, render] = newest;
 				this.queue.delete(key);
+				const job = { key, cancelled: false };
+				this.active = job;
 				try {
-					this.store(key, await render());
+					// Checked between frames too: playback that starts mid-strip suspends it.
+					const frames = await render({
+						shouldStop: () => job.cancelled || this.options.isBusy(),
+					});
+					if (frames) {
+						this.store(key, frames);
+					} else if (!job.cancelled && !this.queue.has(key)) {
+						// Suspended by playback: resume once it pauses.
+						this.queue.set(key, render);
+					}
 				} catch (error) {
 					console.warn("Compound thumbnail render failed:", error);
+				} finally {
+					this.active = null;
 				}
 			}
 		} finally {
@@ -146,28 +169,34 @@ export class CompoundThumbnailCache {
 	}
 }
 
-/** Low-res frames of the nested scene at `times`, as JPEG data URLs. */
-export async function renderCompoundThumbnails({
-	editor,
-	element,
-}: {
+/** Renders single low-res frames of one nested scene. */
+export interface ThumbnailFrameRenderer {
+	renderAt(time: MediaTime): Promise<string>;
+}
+
+export type LoadThumbnailRenderer = (params: {
 	editor: EditorCore;
-	element: CompoundElement;
-}): Promise<string[]> {
+	nested: TScene;
+	scenes: TScene[];
+	/** Covers every sample, so a sample in an empty tail renders what is there: nothing. */
+	duration: MediaTime;
+}) => Promise<ThumbnailFrameRenderer>;
+
+const loadCanvasThumbnailRenderer: LoadThumbnailRenderer = async ({
+	editor,
+	nested,
+	scenes,
+	duration,
+}) => {
 	const [{ buildScene }, { CanvasRenderer }] = await Promise.all([
 		import("@/services/renderer/scene-builder"),
 		import("@/services/renderer/canvas-renderer"),
 	]);
-	const project = editor.project.getActive();
-	const scenes = editor.scenes.getScenes();
-	const nested = scenes.find((scene) => scene.id === element.sceneId);
-	if (!nested) return [];
-	const { canvasSize, fps, background } = project.settings;
-	const duration = calculateTotalDuration({ tracks: nested.tracks });
+	const { canvasSize, fps, background } = editor.project.getActive().settings;
 	const tree = buildScene({
 		tracks: nested.tracks,
 		mediaAssets: editor.media.getAssets(),
-		duration: duration || 1,
+		duration,
 		canvasSize,
 		background,
 		scenes,
@@ -181,14 +210,42 @@ export async function renderCompoundThumbnails({
 	const canvas = document.createElement("canvas");
 	canvas.width = renderer.outputWidth;
 	canvas.height = renderer.outputHeight;
+	return {
+		async renderAt(time) {
+			await renderer.renderToCanvas({ node: tree, time, targetCanvas: canvas });
+			return canvas.toDataURL("image/jpeg", 0.7);
+		},
+	};
+};
+
+/**
+ * Low-res frames of the clip's visible window, as JPEG data URLs. Samples render at their own
+ * nested times, including the empty tail left after nested content got shorter. Returns null as
+ * soon as `shouldStop` is true (checked before each frame), so playback never waits on a strip.
+ */
+export async function renderCompoundThumbnails({
+	editor,
+	element,
+	shouldStop = () => false,
+	loadRenderer = loadCanvasThumbnailRenderer,
+}: {
+	editor: EditorCore;
+	element: CompoundElement;
+	shouldStop?: () => boolean;
+	loadRenderer?: LoadThumbnailRenderer;
+}): Promise<string[] | null> {
+	const scenes = editor.scenes.getScenes();
+	const nested = scenes.find((scene) => scene.id === element.sceneId);
+	if (!nested) return [];
+	const times = getCompoundThumbnailTimes({ element });
+	const contentDuration = calculateTotalDuration({ tracks: nested.tracks });
+	const duration = Math.max(contentDuration, ...times.map((time) => time + 1)) as MediaTime;
+	if (shouldStop()) return null;
+	const renderer = await loadRenderer({ editor, nested, scenes, duration });
 	const frames: string[] = [];
-	for (const time of getCompoundThumbnailTimes({ element })) {
-		await renderer.renderToCanvas({
-			node: tree,
-			time: Math.min(time, Math.max(0, duration - 1)),
-			targetCanvas: canvas,
-		});
-		frames.push(canvas.toDataURL("image/jpeg", 0.7));
+	for (const time of times) {
+		if (shouldStop()) return null;
+		frames.push(await renderer.renderAt(time));
 	}
 	return frames;
 }
