@@ -1,4 +1,6 @@
-import type { SceneTracks, TimelineTrack } from "@/timeline";
+import type { CompoundElement, SceneTracks, TScene, TimelineTrack } from "@/timeline";
+import { CompoundCycleError } from "@/timeline/compound";
+import { CompoundNode } from "./nodes/compound-node";
 import type { MediaAsset } from "@/media/types";
 import { RootNode } from "./nodes/root-node";
 import { VideoNode } from "./nodes/video-node";
@@ -32,23 +34,78 @@ function getVisibleSortedElements({ track }: { track: TimelineTrack }) {
 		});
 }
 
-function buildTrackNodes({
-	tracks,
-	mediaMap,
-	canvasSize,
-	isPreview,
-}: {
-	tracks: TimelineTrack[];
+type BuildContext = {
 	mediaMap: Map<string, MediaAsset>;
 	canvasSize: TCanvasSize;
 	isPreview?: boolean;
+	scenes: TScene[];
+	/** Compound scenes being built above this level; guards against cycles. */
+	sceneStack: string[];
+};
+
+function getVisualTracksBottomToTop(tracks: SceneTracks): TimelineTrack[] {
+	const visibleTracks = [
+		...tracks.overlay.filter((track) => !("hidden" in track && track.hidden)),
+		...(!tracks.main.hidden ? [tracks.main] : []),
+	];
+	return visibleTracks.slice().reverse();
+}
+
+function buildCompoundNode({
+	element,
+	context,
+}: {
+	element: CompoundElement;
+	context: BuildContext;
+}): CompoundNode | null {
+	const scene = context.scenes.find((s) => s.id === element.sceneId);
+	if (!scene) return null;
+	if (context.sceneStack.includes(scene.id)) {
+		console.warn(new CompoundCycleError(scene.id).message);
+		return null;
+	}
+
+	const content = new RootNode({ duration: element.sourceDuration ?? element.duration });
+	for (const node of buildTrackNodes({
+		tracks: getVisualTracksBottomToTop(scene.tracks),
+		context: { ...context, sceneStack: [...context.sceneStack, scene.id] },
+	})) {
+		content.add(node);
+	}
+
+	return new CompoundNode({
+		content,
+		duration: element.duration,
+		timeOffset: element.startTime,
+		trimStart: element.trimStart,
+		trimEnd: element.trimEnd,
+		transform: buildTransformFromParams({ params: element.params }),
+		animations: element.animations,
+		opacity: readOpacityFromParams({ params: element.params }),
+		blendMode: readBlendModeFromParams({ params: element.params }),
+	});
+}
+
+function buildTrackNodes({
+	tracks,
+	context,
+}: {
+	tracks: TimelineTrack[];
+	context: BuildContext;
 }): AnyBaseNode[] {
+	const { mediaMap, canvasSize, isPreview } = context;
 	const nodes: AnyBaseNode[] = [];
 
 	for (const track of tracks) {
 		const elements = getVisibleSortedElements({ track });
 
 		for (const element of elements) {
+			if (element.type === "compound") {
+				const node = buildCompoundNode({ element, context });
+				if (node) nodes.push(node);
+				continue;
+			}
+
 			if (element.type === "effect") {
 				nodes.push(
 					new EffectLayerNode({
@@ -233,6 +290,8 @@ export type BuildSceneParams = {
 	duration: number;
 	background: TBackground;
 	isPreview?: boolean;
+	/** All project scenes, so compound clips can find their nested scene. */
+	scenes?: TScene[];
 };
 
 export function buildScene({
@@ -242,22 +301,15 @@ export function buildScene({
 	duration,
 	background,
 	isPreview,
+	scenes = [],
 }: BuildSceneParams) {
 	const rootNode = new RootNode({ duration });
 	const mediaMap = new Map(mediaAssets.map((m) => [m.id, m]));
-
-	const visibleTracks = [
-		...tracks.overlay.filter((track) => !("hidden" in track && track.hidden)),
-		...(!tracks.main.hidden ? [tracks.main] : []),
-	];
-	const orderedTracksBottomToTop = visibleTracks.slice().reverse();
 	const mainTrack = tracks.main.hidden ? undefined : tracks.main;
 
 	const allNodes = buildTrackNodes({
-		tracks: orderedTracksBottomToTop,
-		mediaMap,
-		canvasSize,
-		isPreview,
+		tracks: getVisualTracksBottomToTop(tracks),
+		context: { mediaMap, canvasSize, isPreview, scenes, sceneStack: [] },
 	});
 
 	if (background.type === "blur") {

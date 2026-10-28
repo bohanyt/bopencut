@@ -19,6 +19,7 @@ export function registerTranscriptionDiagnostics({
 			return !timelineHasAudio({
 				tracks: scene.tracks,
 				mediaAssets: editor.media.getAssets(),
+				scenes: editor.scenes.getScenes(),
 			});
 		},
 	});

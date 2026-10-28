@@ -59,3 +59,8 @@ Add text with `text:"Text"` on a `text` track; text attributes can be set throug
 `group` is stored and reported as `groupId`. Click selects a group, double-click selects a member, and Ctrl+G / Ctrl+Shift+G groups or ungroups.
 
 Preview quality can be selected in the toolbar: Full, ½ (default), or ¼. The choice is stored in the browser and does not reduce export or agent frame quality.
+
+## Compound clips
+A compound clip is an element `{type:"compound", sceneId, startTime, duration, trimStart, trimEnd, sourceDuration, params}` that points at a nested scene with `kind:"compound"` (hidden from the scene list; regular scenes have no `kind`). The nested scene's tracks render as one layer: nested time = `t - startTime + trimStart`, `sourceDuration` = nested scene duration. `params` are the video ones: `transform.*`, `opacity`, and `blendMode` act on the whole group; `volume` (dB, added to each nested clip) and `muted` act on all nested audio (audio clips and video source audio). Clips with any visual content sit on video tracks, audio-only ones on audio tracks (`getCompoundTrackType` in `timeline/compound.ts`). Compounds can nest; a scene that would contain itself is rejected with `CompoundCycleError`. Several compound clips may share one nested scene (split halves do).
+
+Console/API: `editor.timeline.createCompound({elements:[{trackId,elementId}], name?})` returns `{compound, sceneId}`; `editor.timeline.ungroupCompound({trackId, elementId})` returns refs of the restored elements (only the visible, trimmed part comes back, at parent times; the compound's transform is not baked into them). Each is one Undo step.

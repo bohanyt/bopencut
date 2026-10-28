@@ -8,6 +8,8 @@ const ELEMENT_TRACK_MAP: Record<ElementType, TrackType> = {
 	effect: "effect",
 	video: "video",
 	image: "video",
+	// Default only; the real rule depends on content (see getCompoundTrackType in timeline/compound).
+	compound: "video",
 };
 
 export function getTrackTypeForElementType({
@@ -25,6 +27,9 @@ export function canElementGoOnTrack({
 	elementType: ElementType;
 	trackType: TrackType;
 }): boolean {
+	if (elementType === "compound") {
+		return trackType === "video" || trackType === "audio";
+	}
 	return getTrackTypeForElementType({ elementType }) === trackType;
 }
 

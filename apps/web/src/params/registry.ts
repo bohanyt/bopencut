@@ -363,6 +363,10 @@ elementParamRegistry.register({
 });
 elementParamRegistry.register({ key: "audio", definition: audioElementParams });
 elementParamRegistry.register({ key: "effect", definition: [] });
+elementParamRegistry.register({
+	key: "compound",
+	definition: [...visualElementParams, ...audioElementParams],
+});
 
 export function getElementParams({
 	element,

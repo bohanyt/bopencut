@@ -7,6 +7,7 @@ import type {
 	TimelineTrack,
 	TimelineElement,
 	RetimeConfig,
+	ElementRef,
 } from "@/timeline";
 import { calculateTotalDuration } from "@/timeline";
 import { TimelineDragSource } from "@/timeline/drag-source";
@@ -57,6 +58,8 @@ import {
 	UpsertEffectParamKeyframeCommand,
 	RemoveEffectParamKeyframeCommand,
 	ToggleSourceAudioSeparationCommand,
+	CreateCompoundCommand,
+	UngroupCompoundCommand,
 } from "@/commands/timeline";
 import type { InsertElementParams } from "@/commands/timeline/element/insert-element";
 import type {
@@ -200,6 +203,28 @@ export class TimelineManager {
 		});
 		this.editor.command.execute({ command });
 		return command.getRightSideElements();
+	}
+
+	/** Moves the elements into a new nested scene and puts one compound clip in their place (one undo step). */
+	createCompound({
+		elements,
+		name,
+	}: {
+		elements: ElementRef[];
+		name?: string;
+	}): { compound: ElementRef; sceneId: string } {
+		const command = new CreateCompoundCommand({ elements, name });
+		this.editor.command.execute({ command });
+		const compound = command.getCompound();
+		if (!compound) throw new Error("Compound clip was not created");
+		return { compound, sceneId: command.getSceneId() };
+	}
+
+	/** Puts the visible part of a compound clip's content back on this timeline (one undo step). */
+	ungroupCompound({ trackId, elementId }: ElementRef): ElementRef[] {
+		const command = new UngroupCompoundCommand({ trackId, elementId });
+		this.editor.command.execute({ command });
+		return command.getElements();
 	}
 
 	getTotalDuration(): MediaTime {

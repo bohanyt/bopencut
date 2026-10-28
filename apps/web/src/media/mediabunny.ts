@@ -6,7 +6,7 @@ import {
 	type VideoCodec,
 } from "mediabunny";
 import { createTimelineAudioBuffer } from "@/media/audio";
-import type { SceneTracks } from "@/timeline";
+import type { SceneTracks, TScene } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { renderThumbnailDataUrl } from "./thumbnail";
@@ -88,11 +88,13 @@ export const extractTimelineAudio = async ({
 	mediaAssets,
 	totalDuration,
 	onProgress,
+	scenes,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	totalDuration: number;
 	onProgress?: (progress: number) => void;
+	scenes?: TScene[];
 }): Promise<Blob> => {
 	if (totalDuration === 0) {
 		return createWavBlob({
@@ -109,6 +111,7 @@ export const extractTimelineAudio = async ({
 		mediaAssets,
 		duration: totalDuration,
 		sampleRate: SAMPLE_RATE,
+		scenes,
 	});
 
 	if (!audioBuffer) {

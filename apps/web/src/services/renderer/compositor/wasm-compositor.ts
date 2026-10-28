@@ -18,6 +18,7 @@ import type {
 	RenderedTextureDescriptor,
 	TextureUploadDescriptor,
 } from "./types";
+import { matteFromBlackAndWhite } from "./matte";
 
 /**
  * One slot in the derived-texture cache. The OffscreenCanvas is persistent —
@@ -69,12 +70,17 @@ class WasmCompositor {
 		return this.canvas;
 	}
 
-	syncTextures(textures: TextureUploadDescriptor[]) {
-		const nextIds = new Set(textures.map((texture) => texture.id));
-		for (const previousId of this.cache.keys()) {
-			if (!nextIds.has(previousId)) {
-				releaseTexture(previousId);
-				this.cache.delete(previousId);
+	syncTextures(
+		textures: TextureUploadDescriptor[],
+		{ releaseUnused = true }: { releaseUnused?: boolean } = {},
+	) {
+		if (releaseUnused) {
+			const nextIds = new Set(textures.map((texture) => texture.id));
+			for (const previousId of this.cache.keys()) {
+				if (!nextIds.has(previousId)) {
+					releaseTexture(previousId);
+					this.cache.delete(previousId);
+				}
 			}
 		}
 
@@ -94,6 +100,31 @@ class WasmCompositor {
 				getLastFrameProfile() as Array<{ name: string; durationMs: number }>,
 			);
 		}
+	}
+
+	/**
+	 * Renders a frame with a transparent background into a new canvas, so it can be used as a
+	 * texture of an outer frame (compound clips). The shared compositor canvas is overwritten.
+	 */
+	renderToTransparentCanvas(frame: FrameDescriptor): OffscreenCanvas {
+		const { width, height } = frame;
+		const canvas = createBackingCanvas({ width, height });
+		const context = canvas.getContext("2d", { willReadFrequently: true });
+		if (!context) {
+			throw new Error("Failed to get 2d context for compound texture");
+		}
+		const readOver = (color: [number, number, number, number]) => {
+			this.render({ ...frame, clear: { color } });
+			context.clearRect(0, 0, width, height);
+			context.drawImage(this.getCanvas(), 0, 0, width, height);
+			return context.getImageData(0, 0, width, height).data;
+		};
+		const black = readOver([0, 0, 0, 1]);
+		const white = readOver([1, 1, 1, 1]);
+		const result = context.createImageData(width, height);
+		matteFromBlackAndWhite({ black, white, out: result.data });
+		context.putImageData(result, 0, 0);
+		return canvas;
 	}
 
 	private syncExternalTexture(texture: ExternalTextureDescriptor) {

@@ -10,6 +10,7 @@ import type {
 	VisualElement,
 	VideoElement,
 	AudioElement,
+	CompoundElement,
 	TimelineElement,
 } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
@@ -80,7 +81,7 @@ export type ElementPropertiesConfig = {
 function buildTransformTab({
 	element,
 }: {
-	element: VisualElement;
+	element: VisualElement | CompoundElement;
 }): PropertiesTabDef {
 	return {
 		id: "transform",
@@ -100,7 +101,7 @@ function buildTransformTab({
 function buildBlendingTab({
 	element,
 }: {
-	element: VisualElement;
+	element: VisualElement | CompoundElement;
 }): PropertiesTabDef {
 	return {
 		id: "blending",
@@ -120,7 +121,7 @@ function buildBlendingTab({
 function buildAudioTab({
 	element,
 }: {
-	element: AudioElement | VideoElement;
+	element: AudioElement | VideoElement | CompoundElement;
 }): PropertiesTabDef {
 	return {
 		id: "audio",
@@ -332,6 +333,22 @@ function getEffectConfig({
 	};
 }
 
+// Compound clip: transform + blending like video, plus nested audio volume in the audio tab.
+function getCompoundConfig({
+	element,
+}: {
+	element: CompoundElement;
+}): ElementPropertiesConfig {
+	return {
+		defaultTab: "transform",
+		tabs: [
+			buildTransformTab({ element }),
+			buildAudioTab({ element }),
+			buildBlendingTab({ element }),
+		],
+	};
+}
+
 export function getPropertiesConfig({
 	element,
 	mediaAssets,
@@ -356,5 +373,7 @@ export function getPropertiesConfig({
 			return getAudioConfig({ element });
 		case "effect":
 			return getEffectConfig({ element });
+		case "compound":
+			return getCompoundConfig({ element });
 	}
 }

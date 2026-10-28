@@ -163,6 +163,7 @@ class StorageService {
 			audio: tracks.audio.map((track) => ({
 				...track,
 				elements: track.elements.map((element) => {
+					if (element.type !== "audio") return element;
 					const { buffer: _buffer, ...rest } = element;
 					return rest;
 				}),
@@ -178,6 +179,7 @@ class StorageService {
 			id: scene.id,
 			name: scene.name,
 			isMain: scene.isMain,
+			...(scene.kind && { kind: scene.kind }),
 			tracks: this.stripAudioBuffers({ tracks: scene.tracks }),
 			bookmarks: scene.bookmarks,
 			createdAt: scene.createdAt.toISOString(),
@@ -234,6 +236,7 @@ class StorageService {
 				id: scene.id,
 				name: scene.name,
 				isMain: scene.isMain,
+				...(scene.kind && { kind: scene.kind }),
 				tracks: scene.tracks,
 				bookmarks: normalizeBookmarks({ raw: scene.bookmarks }),
 				createdAt: new Date(scene.createdAt),

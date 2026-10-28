@@ -26,6 +26,8 @@ export interface TScene {
 	id: string;
 	name: string;
 	isMain: boolean;
+	/** "compound" = content of a compound clip; hidden from the scene list. Unset = regular user scene. */
+	kind?: "compound";
 	tracks: SceneTracks;
 	bookmarks: Bookmark[];
 	createdAt: Date;
@@ -41,7 +43,7 @@ interface BaseTrack {
 
 export interface VideoTrack extends BaseTrack {
 	type: "video";
-	elements: (VideoElement | ImageElement)[];
+	elements: (VideoElement | ImageElement | CompoundElement)[];
 	muted: boolean;
 	hidden: boolean;
 }
@@ -54,7 +56,7 @@ export interface TextTrack extends BaseTrack {
 
 export interface AudioTrack extends BaseTrack {
 	type: "audio";
-	elements: AudioElement[];
+	elements: (AudioElement | CompoundElement)[];
 	muted: boolean;
 }
 
@@ -168,6 +170,17 @@ export interface EffectElement extends BaseTimelineElement {
 	effectType: string;
 }
 
+/**
+ * Compound clip: references another scene (`kind: "compound"`) and renders all of its tracks
+ * as one layer. Nested local time = t - startTime + trimStart; sourceDuration = nested scene duration.
+ * Params: transform/opacity/blendMode (like video) + volume/muted applied to the nested audio.
+ */
+export interface CompoundElement extends BaseTimelineElement {
+	type: "compound";
+	sceneId: string;
+	hidden?: boolean;
+}
+
 export type ElementUpdatePatch = { params?: Partial<ParamValues> };
 
 export type TimelineElement =
@@ -177,7 +190,8 @@ export type TimelineElement =
 	| TextElement
 	| StickerElement
 	| GraphicElement
-	| EffectElement;
+	| EffectElement
+	| CompoundElement;
 
 export type ElementType = TimelineElement["type"];
 
@@ -223,6 +237,7 @@ export type CreateTextElement = Omit<TextElement, "id">;
 export type CreateStickerElement = Omit<StickerElement, "id">;
 export type CreateGraphicElement = Omit<GraphicElement, "id">;
 export type CreateEffectElement = Omit<EffectElement, "id">;
+export type CreateCompoundElement = Omit<CompoundElement, "id">;
 export type CreateTimelineElement =
 	| CreateAudioElement
 	| CreateVideoElement
@@ -230,7 +245,8 @@ export type CreateTimelineElement =
 	| CreateTextElement
 	| CreateStickerElement
 	| CreateGraphicElement
-	| CreateEffectElement;
+	| CreateEffectElement
+	| CreateCompoundElement;
 
 export interface ElementDragState {
 	isDragging: boolean;

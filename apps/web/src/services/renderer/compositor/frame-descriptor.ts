@@ -13,12 +13,17 @@ import {
 	type ResolvedGraphicNodeState,
 } from "../nodes/graphic-node";
 import { Model3dNode } from "../nodes/model3d-node";
+import { CompoundNode } from "../nodes/compound-node";
+import { wasmCompositor } from "./wasm-compositor";
 import { ImageNode } from "../nodes/image-node";
 import { RootNode } from "../nodes/root-node";
 import { StickerNode } from "../nodes/sticker-node";
 import { renderTextToContext, TextNode } from "../nodes/text-node";
 import { VideoNode } from "../nodes/video-node";
-import type { ResolvedVisualSourceNodeState } from "../nodes/visual-node";
+import type {
+	ResolvedVisualNodeState,
+	ResolvedVisualSourceNodeState,
+} from "../nodes/visual-node";
 import type {
 	FrameDescriptor,
 	FrameItemDescriptor,
@@ -32,9 +37,11 @@ import { DEFAULT_GRAPHIC_SOURCE_SIZE } from "@/graphics";
 export async function buildFrameDescriptor({
 	node,
 	renderer,
+	path = "root",
 }: {
 	node: AnyBaseNode;
 	renderer: CanvasRenderer;
+	path?: string;
 }): Promise<{
 	frame: FrameDescriptor;
 	textures: TextureUploadDescriptor[];
@@ -45,7 +52,7 @@ export async function buildFrameDescriptor({
 	await collectNode({
 		node,
 		renderer,
-		path: "root",
+		path,
 		items,
 		textures,
 	});
@@ -200,6 +207,17 @@ async function collectNode({
 		return;
 	}
 
+	if (node instanceof CompoundNode) {
+		await collectCompoundNode({
+			node,
+			renderer,
+			path,
+			items,
+			textures,
+		});
+		return;
+	}
+
 	if (node instanceof TextNode) {
 		collectTextNode({
 			node,
@@ -302,6 +320,70 @@ async function collectVisualSourceNode({
 	}
 }
 
+/**
+ * Compound clip: composite the nested scene on its own (transparent background, see matte.ts) into one
+ * texture, then place that texture as a single layer like an image the size of the canvas.
+ * Nested textures stay in the parent list so the parent sync keeps them cached.
+ */
+async function collectCompoundNode({
+	node,
+	renderer,
+	path,
+	items,
+	textures,
+}: {
+	node: CompoundNode;
+	renderer: CanvasRenderer;
+	path: string;
+	items: FrameItemDescriptor[];
+	textures: Map<string, TextureUploadDescriptor>;
+}) {
+	if (!node.resolved) {
+		return;
+	}
+
+	const contentPath = `${path}:compound`;
+	const { frame, textures: nestedTextures } = await buildFrameDescriptor({
+		node: node.params.content,
+		renderer,
+		path: contentPath,
+	});
+	if (frame.items.length === 0) {
+		return;
+	}
+	for (const texture of nestedTextures) {
+		textures.set(texture.id, texture);
+	}
+
+	const { outputWidth: width, outputHeight: height } = renderer;
+	wasmCompositor.ensureInitialized({ width, height });
+	wasmCompositor.syncTextures(nestedTextures, { releaseUnused: false });
+	const source = wasmCompositor.renderToTransparentCanvas(frame);
+
+	const textureId = `${contentPath}:source`;
+	textures.set(textureId, {
+		kind: "external",
+		id: textureId,
+		source,
+		width,
+		height,
+	});
+	items.push({
+		type: "layer",
+		textureId,
+		transform: computeVisualTransform({
+			renderer,
+			resolved: node.resolved,
+			sourceWidth: renderer.width,
+			sourceHeight: renderer.height,
+		}),
+		opacity: node.resolved.opacity,
+		blendMode: node.params.blendMode ?? "normal",
+		effectPassGroups: node.resolved.effectPasses,
+		mask: null,
+	});
+}
+
 function collectTextNode({
 	node,
 	renderer,
@@ -360,7 +442,7 @@ function computeVisualTransform({
 	sourceHeight,
 }: {
 	renderer: CanvasRenderer;
-	resolved: ResolvedVisualSourceNodeState | ResolvedGraphicNodeState;
+	resolved: ResolvedVisualNodeState;
 	sourceWidth: number;
 	sourceHeight: number;
 }): QuadTransformDescriptor {

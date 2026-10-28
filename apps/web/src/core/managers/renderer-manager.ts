@@ -98,6 +98,7 @@ export class RendererManager {
 				duration,
 				canvasSize,
 				background: activeProject.settings.background,
+				scenes: this.editor.scenes.getScenes(),
 			});
 			const renderTime = Math.min(
 				time ?? this.editor.playback.getCurrentTime(),
@@ -179,6 +180,7 @@ export class RendererManager {
 					tracks,
 					mediaAssets,
 					duration,
+					scenes: this.editor.scenes.getScenes(),
 				});
 			}
 
@@ -188,6 +190,7 @@ export class RendererManager {
 				duration,
 				canvasSize,
 				background: activeProject.settings.background,
+				scenes: this.editor.scenes.getScenes(),
 			});
 
 			const exporter = new SceneExporter({
