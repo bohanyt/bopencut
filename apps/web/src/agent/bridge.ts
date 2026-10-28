@@ -4,6 +4,7 @@ import { EditorCore } from "@/core";
 import { toast } from "sonner";
 import { pollFrames } from "./frames";
 import { loadIcon } from "@/stickers/providers/iconify";
+import { loadFonts } from "@/fonts/google-fonts";
 import { createEditLogger, type EditSnapshot } from "./edit-log";
 import { type AgentElement, type LoadedMedia, loadAgentAsset } from "./elements";
 import { walkAgentElements } from "./compound-content";
@@ -119,9 +120,11 @@ export async function applyDraft(draft: Draft) {
 	// Load icons and assets first (async), then change the timeline at once.
 	const media = new Map<AgentElement, LoadedMedia>();
 	const byPath = new Map<string, Promise<LoadedMedia>>();
+	const fontFamilies = new Set<string>();
 	for (const [i, op] of ops.entries()) {
 		try {
 			for (const e of elementsOf(op)) {
+				if (e.text !== undefined && typeof e.params?.fontFamily === "string") fontFamilies.add(e.params.fontFamily);
 				if (e.icon) e.icon = { ...e.icon, svg: await loadIcon(e.icon.name) };
 				if (e.asset && typeof e.asset !== "string") {
 					const asset = e.asset;
@@ -133,6 +136,7 @@ export async function applyDraft(draft: Draft) {
 			results[i] = { op: op.op, ...(op.op === "add" ? { name: op.element?.name } : { agentId: (op as { agent_id?: string }).agent_id }), ok: false, error: String(error) };
 		}
 	}
+	if (typeof document !== "undefined" && fontFamilies.size) await loadFonts({ families: [...fontFamilies] });
 
 	// Read the scenes after loading: the human may have edited meanwhile.
 	const before = editor.scenes.getScenes();

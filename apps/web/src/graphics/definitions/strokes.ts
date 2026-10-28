@@ -181,6 +181,7 @@ export const arrowGraphicDefinition: GraphicDefinition = {
 	keywords: ["arrow", "connector"],
 	params: [
 		...common,
+		{ key: "headFill", label: "Head fill", type: "color", default: "#00000000" },
 		{
 			key: "headSize",
 			label: "Head size",
@@ -215,6 +216,14 @@ export const arrowGraphicDefinition: GraphicDefinition = {
 				(triangle ? 1 : 3) * Math.hypot(size, size / 2) +
 				(triangle ? size : 0),
 		);
+		if (triangle && Number(context.params.drawProgress ?? 1) >= 0.999) {
+			const { ctx, width, height, params } = context;
+			ctx.save();
+			ctx.scale(width / 100, height / 100);
+			ctx.fillStyle = String(params.headFill ?? "#00000000");
+			ctx.fill(new Path2D(`M 98 50 L ${98-size} ${50-size/2} L ${98-size} ${50+size/2} Z`));
+			ctx.restore();
+		}
 	},
 };
 
@@ -226,6 +235,7 @@ export const pathGraphicDefinition: GraphicDefinition = {
 		...common,
 		{ key: "d", label: "SVG path", type: "text", default: "M 2 50 L 98 50" },
 		{ key: "viewBox", label: "View box", type: "text", default: "" },
+		{ key: "fill", label: "Fill", type: "color", default: "#00000000" },
 	],
 	render({ ctx, params, width, height }) {
 		if (typeof document === "undefined") return;
@@ -267,6 +277,13 @@ export const pathGraphicDefinition: GraphicDefinition = {
 			const transform = viewBoxTransform(box, width, height);
 			ctx.scale(transform.scaleX, transform.scaleY);
 			ctx.translate(transform.translateX, transform.translateY);
+			// Fill the complete compound path, so holes use the SVG winding rule.
+			// Reveal the fill with progress while the stroke is drawn by length.
+			ctx.save();
+			ctx.globalAlpha *= Math.max(0, Math.min(1, Number(params.drawProgress ?? 1)));
+			ctx.fillStyle = String(params.fill ?? "#00000000");
+			ctx.fill(new Path2D(d));
+			ctx.restore();
 			ctx.strokeStyle = String(params.stroke ?? "#ffffff");
 			ctx.lineWidth =
 				Math.max(0, Number(params.strokeWidth ?? 4)) *
@@ -276,7 +293,7 @@ export const pathGraphicDefinition: GraphicDefinition = {
 				Math.max(0, Number(params.dash ?? 0)) *
 				Math.min(box[2] / width, box[3] / height);
 			paths.forEach((path, i) => {
-				if (visible[i] <= 0 || path.length <= 0) return;
+				if (visible[i] <= 0 || path.length <= 0 || Number(params.strokeWidth ?? 4) <= 0) return;
 				ctx.setLineDash(
 					progressDash(path.length, visible[i] / path.length, dash),
 				);

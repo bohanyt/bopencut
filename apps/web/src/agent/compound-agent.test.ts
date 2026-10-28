@@ -4,6 +4,7 @@ import type { TProject } from "@/project/types";
 import { type MediaTime, TICKS_PER_SECOND } from "@/wasm";
 import { resolveMatch, toRootInterval } from "./scene-graph";
 import { buildEditItems, buildSceneSnapshot } from "./snapshot";
+import { resolveAnimationPathValueAtTime } from "@/animation/resolve";
 import { createEditLogger, diffEdits, type EditItem } from "./edit-log";
 
 // Stub the GPU modules (unused here) before EditorCore pulls them in; see scene-history.test.ts.
@@ -66,6 +67,41 @@ const draft = (ops: unknown[]) => ({ schema: "opencut-agent-draft-1", rev: "r", 
 const state = (editor: ReturnType<typeof setup>) => JSON.stringify(editor.scenes.getScenes().map((s) => ({ id: s.id, kind: s.kind, tracks: s.tracks })));
 
 afterEach(() => EditorCore.reset());
+
+test("compound imports retain color keyframes and editable filled paths", () => {
+	const out = computeAgentDraft({ scenes: nested(), rootSceneId: "main", canvas: { width: 1920, height: 1080 },
+		fps: { numerator: 30, denominator: 1 }, ripple: false, mediaFor: () => undefined,
+		ops: [{ op: "compound", name: "Vector import", start: 0, elements: [{
+			name: "Outline", start: 0, duration: 2, track: { name: "Vectors" },
+			graphic: { definitionId: "path", params: { d: "M0 0H10V10Z", fill: "#ff000080" } },
+			keyframes: [{ path: "fill", time: 0, value: "#ff000080" }, { path: "fill", time: 1, value: "#0000ffff" }],
+		}] }],
+	});
+	expect(out.results[0].ok).toBe(true);
+	const content = out.scenes.find((s) => s.id === out.results[0].sceneId);
+	const path = content?.tracks.overlay[0].elements[0];
+	expect(path?.type).toBe("graphic");
+	expect(path?.animations?.["params.fill"]).toBeDefined();
+	expect(path?.params.fill).toBe("#ff000080");
+});
+
+test("sampled imports preserve sub-step scales and closely spaced camera cuts", () => {
+	const out = computeAgentDraft({ scenes: nested(), rootSceneId: "main", canvas: { width: 1920, height: 1080 },
+		fps: { numerator: 30, denominator: 1 }, ripple: false, mediaFor: () => undefined,
+		ops: [{ op: "compound", name: "Camera", start: 0, duration: 2,
+			keyframes: [{ path: "transform.positionX", time: 0, value: -46.08 }, { path: "transform.positionX", time: 1.9999, value: -46.08 }, { path: "transform.positionX", time: 2, value: 46.08 }],
+			elements: [{ name: "Dot", start: 0, duration: 2, track: { name: "Dots" }, graphic: { definitionId: "ellipse" },
+				keyframes: [{ path: "transform.scaleX", time: 0, value: .01734 }, { path: "transform.scaleX", time: 1, value: .02734 }],
+			}],
+		}],
+	});
+	const host = out.scenes.find((s) => s.id === "main");
+	const camera = host?.tracks.overlay[0].elements[0];
+	const content = out.scenes.find((s) => s.id === out.results[0].sceneId);
+	const dot = content?.tracks.overlay[0].elements[0];
+	expect(resolveAnimationPathValueAtTime({ animations: camera?.animations, propertyPath: "transform.positionX", localTime: T(1), fallbackValue: 0 })).toBe(-46.08);
+	expect(resolveAnimationPathValueAtTime({ animations: dot?.animations, propertyPath: "transform.scaleX", localTime: T(0), fallbackValue: 0 })).toBe(.01734);
+});
 
 describe("addressing and absolute times", () => {
 	test("intervals map through two nesting levels and their trim windows", () => {

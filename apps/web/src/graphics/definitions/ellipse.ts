@@ -8,6 +8,8 @@ interface EllipseParams {
 	stroke: string;
 	strokeWidth: number;
 	strokeAlign: GraphicStrokeAlign;
+	shapeWidth: number;
+	shapeHeight: number;
 }
 
 const ELLIPSE_PARAMS: ParamDefinition<keyof EllipseParams & string>[] = [
@@ -36,6 +38,8 @@ const ELLIPSE_PARAMS: ParamDefinition<keyof EllipseParams & string>[] = [
 		group: "stroke",
 	},
 	STROKE_ALIGN_PARAM,
+	{ key: "shapeWidth", label: "Shape width", type: "number", default: 1, min: 0.001, max: 1, step: 0.01 },
+	{ key: "shapeHeight", label: "Shape height", type: "number", default: 1, min: 0.001, max: 1, step: 0.01 },
 ];
 
 export const ellipseGraphicDefinition: GraphicDefinition = {
@@ -51,8 +55,8 @@ export const ellipseGraphicDefinition: GraphicDefinition = {
 		const inset = strokeAlign === "center" ? strokeWidth / 2 : 0;
 		const centerX = width / 2;
 		const centerY = height / 2;
-		const radiusX = Math.max(1, width / 2 - inset);
-		const radiusY = Math.max(1, height / 2 - inset);
+		const radiusX = Math.max(1, width * Math.min(1, Math.max(0.001, Number(params.shapeWidth ?? 1))) / 2 - inset);
+		const radiusY = Math.max(1, height * Math.min(1, Math.max(0.001, Number(params.shapeHeight ?? 1))) / 2 - inset);
 
 		ctx.clearRect(0, 0, width, height);
 		const path = new Path2D();

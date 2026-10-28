@@ -16,6 +16,7 @@ export type TextFontStyle = "normal" | "italic";
 export type TextDecoration = "none" | "underline" | "line-through";
 
 export interface TextLayoutParams {
+	glyphAnchor?: boolean;
 	content: string;
 	fontSize: number;
 	fontFamily: string;
@@ -28,6 +29,7 @@ export interface TextLayoutParams {
 }
 
 export interface ResolvedTextLayout {
+	glyphAnchor?: boolean;
 	scaledFontSize: number;
 	fontString: string;
 	letterSpacing: number;
@@ -88,6 +90,7 @@ export function resolveTextLayout({
 	const fontSizeRatio = text.fontSize / 15;
 
 	return {
+		glyphAnchor: text.glyphAnchor,
 		scaledFontSize,
 		fontString: buildTextFontString({
 			fontFamily: text.fontFamily,
@@ -118,6 +121,7 @@ export function measureTextLayout({
 	ctx.save();
 	ctx.font = resolvedLayout.fontString;
 	ctx.textBaseline = "middle";
+	ctx.textAlign = "left";
 	setCanvasLetterSpacing({
 		ctx,
 		letterSpacingPx: resolvedLayout.letterSpacing,
@@ -197,6 +201,9 @@ export function drawMeasuredTextLayout({
 		}
 	}
 
+	ctx.save();
+	const anchor = glyphAnchorOffset(layout);
+	ctx.translate(anchor.x, anchor.y);
 	for (let index = 0; index < layout.lines.length; index++) {
 		const lineY = index * layout.lineHeightPx - layout.block.visualCenterOffset;
 		ctx.fillText(layout.lines[index], 0, lineY);
@@ -210,6 +217,22 @@ export function drawMeasuredTextLayout({
 			textAlign: layout.textAlign,
 		});
 	}
+	ctx.restore();
+}
+
+/** Center visible outlines for vector/text imports while keeping ordinary text layout unchanged. */
+export function glyphAnchorOffset(layout: MeasuredTextLayout): { x: number; y: number } {
+	if (!layout.glyphAnchor || !layout.lineMetrics.length) return { x: 0, y: 0 };
+	let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+	layout.lineMetrics.forEach((metrics, index) => {
+		const advance = layout.textAlign === "center" ? metrics.width / 2 : layout.textAlign === "right" ? metrics.width : 0;
+		const y = index * layout.lineHeightPx - layout.block.visualCenterOffset;
+		left = Math.min(left, -metrics.actualBoundingBoxLeft - advance);
+		right = Math.max(right, metrics.actualBoundingBoxRight - advance);
+		top = Math.min(top, y - metrics.actualBoundingBoxAscent);
+		bottom = Math.max(bottom, y + metrics.actualBoundingBoxDescent);
+	});
+	return { x: -(left + right) / 2, y: -(top + bottom) / 2 };
 }
 
 export function strokeMeasuredTextLayout({
@@ -230,6 +253,9 @@ export function strokeMeasuredTextLayout({
 	ctx.textBaseline = textBaseline;
 	ctx.strokeStyle = strokeColor;
 	ctx.lineWidth = strokeWidth;
+	ctx.save();
+	const anchor = glyphAnchorOffset(layout);
+	ctx.translate(anchor.x, anchor.y);
 	ctx.lineJoin = "round";
 	ctx.lineCap = "round";
 	setCanvasLetterSpacing({ ctx, letterSpacingPx: layout.letterSpacing });
@@ -238,4 +264,5 @@ export function strokeMeasuredTextLayout({
 		const lineY = index * layout.lineHeightPx - layout.block.visualCenterOffset;
 		ctx.strokeText(layout.lines[index], 0, lineY);
 	}
+	ctx.restore();
 }

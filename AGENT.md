@@ -54,6 +54,12 @@ Assets with `type:"model"` accept GLB or glTF with embedded resources. On an ele
 
 Graphic elements can use `graphic:{definitionId:"line"|"arrow"|"path"|"rectangle"|"ellipse"|"polygon"|"star",params:{...}}` on a `graphic` track. `path.params.d` accepts an SVG path; `path.params.viewBox` is an optional `"minX minY width height"` string, otherwise path bounds are calculated automatically. `drawProgress` (0–1) on lines, arrows, and paths can be animated through `keyframes` with `path:"drawProgress"`. `size:[w,h]` sets display size in pixels.
 
+Paths also accept `fill` (default transparent), including alpha and winding-rule holes; their fill fades with `drawProgress`. Arrows accept `headFill` (default transparent) for a filled triangular head. Rectangles and ellipses accept `shapeWidth`/`shapeHeight` (0.001–1, default 1), fitting the geometry inside the element's source square while retaining uniform stroke width. Existing graphics keep their previous appearance.
+
+Agent keyframe `value` may be a number, a color string such as `"#ff000080"`, or a boolean where the parameter supports it. Numeric keys retain their supplied precision while respecting parameter bounds. Text accepts `params.glyphAnchor:true` to center visible letter outlines instead of its line box; the default is false. Draft imports load text font families through the normal web-font loader.
+
+For editable Manim scene imports, see [`tools/manim-import/README.md`](tools/manim-import/README.md).
+
 Add icons with `icon:{name:"lucide:server",color:"#ffffff"}` on a `graphic` track; icon data is fetched during import and its color can be changed in the editor.
 Add text with `text:"Text"` on a `text` track; text attributes can be set through `params`.
 `group` is stored and reported as `groupId`. Click selects a group, double-click selects a member, and Ctrl+G / Ctrl+Shift+G groups or ungroups.

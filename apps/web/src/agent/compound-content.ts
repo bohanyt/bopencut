@@ -148,7 +148,15 @@ export function applyAgentKeyframes({ scenes, keyframes, defaultSceneId }: { sce
 						...element,
 						animations: upsertPathKeyframe({
 							animations: element.animations, propertyPath: k.propertyPath, time, value: k.value, interpolation: "linear",
-							channelLayout: target.channelLayout, coerceValue: target.coerceValue,
+							channelLayout: target.channelLayout,
+							coerceValue: ({ value }) => {
+								const coerced = target.coerceValue({ value });
+								if (typeof value !== "number" || typeof coerced !== "number" || !Number.isFinite(value)) return coerced;
+								// UI step sizes are not a sampling grid. Preserve imported
+								// precision while honoring the parameter's actual bounds.
+								const range = target.numericRanges?.value;
+								return Math.max(range?.min ?? -Infinity, Math.min(range?.max ?? Infinity, value));
+							},
 						}),
 					};
 				},

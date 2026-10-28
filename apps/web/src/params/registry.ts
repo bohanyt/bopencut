@@ -187,6 +187,7 @@ const audioElementParams: ElementParamDefinition[] = [
 ];
 
 const textElementParams: ElementParamDefinition[] = [
+	{ key: "glyphAnchor", label: "Center visible letters", type: "boolean", default: false, keyframable: false },
 	{
 		key: "content",
 		label: "Content",

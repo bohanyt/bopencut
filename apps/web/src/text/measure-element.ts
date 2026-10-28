@@ -135,6 +135,7 @@ export function buildTextLayoutParamsFromElement({
 	element: TextElement;
 }): TextLayoutParams {
 	return {
+		glyphAnchor: element.params.glyphAnchor === true,
 		content: readStringParam({
 			params: element.params,
 			key: "content",

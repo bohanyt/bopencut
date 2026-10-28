@@ -4,7 +4,7 @@ import { processMediaAssets } from "@/media/processing";
 import { buildElementFromMedia, buildEffectElement, buildGraphicElement, buildTextElement } from "@/timeline/element-utils";
 import { mediaTimeFromSeconds } from "@/wasm";
 import { getGraphicDefinition } from "@/graphics";
-import type { ParamValues } from "@/params";
+import type { ParamValue, ParamValues } from "@/params";
 import { generateUUID } from "@/utils/id";
 
 export type AgentAsset = { path: string; type: "image" | "video" | "audio" | "model"; name: string };
@@ -13,7 +13,7 @@ export type AgentElement = {
 	asset?: string | AgentAsset; model3d?: { params?: Record<string, number> }; effect?: string; effectParams?: Record<string, number>;
 	graphic?: { definitionId: string; params?: ParamValues }; icon?: { name: string; color?: string; svg?: string }; text?: string; group?: string;
 	params?: ParamValues; size?: [number, number];
-	keyframes?: { path: string; time: number; value: number }[];
+	keyframes?: { path: string; time: number; value: ParamValue }[];
 	/** Makes this element a compound clip holding these nested tracks (times relative to the clip's content). */
 	compound?: AgentCompoundContent;
 };
@@ -32,7 +32,7 @@ export type AgentCompoundContent = {
 };
 export type LoadedMedia = { id: string; type: AgentAsset["type"]; width?: number; height?: number; duration?: number };
 /** Keyframe to add once the element is placed; time in seconds, relative to the element. */
-export type PendingKeyframe = { sceneId?: string; trackId: string; elementId: string; propertyPath: string; time: number; value: number };
+export type PendingKeyframe = { sceneId?: string; trackId: string; elementId: string; propertyPath: string; time: number; value: ParamValue };
 
 export const secs = (seconds: number) => mediaTimeFromSeconds({ seconds });
 
@@ -101,7 +101,7 @@ export function buildAgentElement({ e, media, trackId, sceneId, canvas, keyframe
 		Object.assign(el.params, e.params ?? {});
 		for (const k of e.keyframes ?? []) {
 			const paths = k.path === "scale" ? ["transform.scaleX", "transform.scaleY"] : [definition.params.some((p) => p.key === k.path) ? `params.${k.path}` : k.path];
-			for (const propertyPath of paths) keyframes.push({ trackId, elementId: el.id, propertyPath, time: k.time, value: k.path === "scale" ? k.value * (el.params[propertyPath] as number) : k.value });
+			for (const propertyPath of paths) keyframes.push({ trackId, elementId: el.id, propertyPath, time: k.time, value: k.path === "scale" && typeof k.value === "number" ? k.value * (el.params[propertyPath] as number) : k.value });
 		}
 		return el;
 	}
@@ -126,7 +126,7 @@ export function buildAgentElement({ e, media, trackId, sceneId, canvas, keyframe
 	for (const [k, v] of Object.entries(e.params ?? {})) el.params[k] = v;
 	for (const k of e.keyframes ?? []) {
 		const paths = k.path === "scale" ? ["transform.scaleX", "transform.scaleY"] : [k.path];
-		for (const propertyPath of paths) keyframes.push({ trackId, elementId: el.id, propertyPath, time: k.time, value: k.path === "scale" ? k.value * base : k.value });
+		for (const propertyPath of paths) keyframes.push({ trackId, elementId: el.id, propertyPath, time: k.time, value: k.path === "scale" && typeof k.value === "number" ? k.value * base : k.value });
 	}
 	return el;
 }
