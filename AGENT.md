@@ -50,3 +50,9 @@ Tulis `frames-request.json`: `{rev:"ambil-1", times:[0,1,2], width:960}`. `rev` 
 
 ## Model 3D
 Aset `type:"model"` menerima GLB atau glTF dengan sumber daya tertanam. Pada elemen, gunakan `model3d:{params:{rotationY:0,modelScale:1,cameraDistance:3.5,cameraFov:45,lightIntensity:2,lightX:3,lightY:4,lightZ:5}}`; `rotationX/Y/Z` dalam derajat. Parameter angka dapat dianimasikan lewat `keyframes` (mis. `path:"rotationY"`). Transform dan opacity bekerja seperti elemen gambar.
+
+Elemen grafik dapat memakai `graphic:{definitionId:"line"|"arrow"|"path"|"rectangle"|"ellipse"|"polygon"|"star",params:{...}}` pada trek `graphic`. `path.params.d` memakai koordinat SVG 0?100. `drawProgress` (0?1) pada line, arrow, dan path dapat dianimasikan lewat `keyframes` dengan `path:"drawProgress"`. `size:[w,h]` menentukan ukuran tampilan dalam piksel.
+
+Ikon dapat ditambah dengan `icon:{name:"lucide:server",color:"#ffffff"}` pada trek `graphic`; data ikon diambil saat impor dan warnanya dapat diubah di editor.
+Teks dapat ditambah dengan `text:"Isi teks"` pada trek `text`; atribut teks dapat diatur melalui `params`.
+`group` disimpan dan dilaporkan sebagai `groupId`; interaksi grup dan perintah group/ungroup belum tersedia.

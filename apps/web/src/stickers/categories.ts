@@ -3,5 +3,6 @@ export const STICKER_CATEGORIES = {
 	// v0.4.0
 	// logos: "Logos",
 	flags: "Flags",
+	icons: "Icons",
 	shapes: "Shapes",
 };

@@ -17,6 +17,8 @@ import {
 } from "@/timeline/element-utils";
 import { STICKER_CATEGORIES } from "@/stickers/categories";
 import { getRegionLabel, resolveQueryToRegions } from "@/stickers";
+import { loadIcon } from "@/stickers/providers/iconify";
+import { parseStickerId } from "@/stickers/sticker-id";
 import { parseShapeStickerId } from "@/stickers/providers/shapes";
 import type { TimelineDragData } from "@/timeline/drag";
 import type {
@@ -353,7 +355,10 @@ function StickerItem({
 			let element:
 				| ReturnType<typeof buildGraphicElement>
 				| ReturnType<typeof buildStickerElement>;
-			if (shapePreset) {
+			if (item.provider === "icons") {
+				const iconName = parseStickerId({ stickerId: item.id }).providerValue;
+				element = buildGraphicElement({ definitionId: "icon", name: item.name, startTime: currentTime, params: { iconName, svg: await loadIcon(iconName) } });
+			} else if (shapePreset) {
 				element = buildGraphicElement({
 					definitionId: shapePreset.definitionId,
 					name: shapePreset.name,
