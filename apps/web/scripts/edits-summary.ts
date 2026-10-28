@@ -22,5 +22,5 @@ const summary = summarizeEdits(lines);
 if (args.includes("--json")) console.log(JSON.stringify(summary, null, 2));
 else {
 	console.log("# Ringkasan edit\n");
-	for (const p of summary) console.log(`- **${p.track} / ${p.elementType} / ${p.field}**: ${p.count} kali, ${p.projects} proyek; median delta ${p.medianDelta ?? "?"}; dari ? ke ${JSON.stringify(p.typical[0])} ? ${JSON.stringify(p.typical[1])}${p.kandidatAturan ? " ? kandidat aturan" : ""}`);
+	for (const p of summary) console.log(`- **${p.track} / ${p.elementType} / ${p.field}**: ${p.count} kali, ${p.projects} proyek; median delta ${p.medianDelta ?? "?"}; paling sering ${JSON.stringify(p.typical[0])} → ${JSON.stringify(p.typical[1])}${p.kandidatAturan ? " — **kandidat aturan**" : ""}`);
 }
