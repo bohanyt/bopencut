@@ -76,6 +76,14 @@ export function usePreviewInteraction({
 		return registerCanceller({ fn: () => controller.cancel() });
 	}, [controller.isDragging, controller]);
 
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") controller.cancel();
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [controller]);
+
 	useEffect(() => () => controller.destroy(), [controller]);
 
 	return {

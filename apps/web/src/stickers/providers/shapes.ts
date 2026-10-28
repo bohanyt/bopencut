@@ -43,7 +43,7 @@ const LEGACY_SHAPE_PRESETS: Record<string, ShapeGraphicPreset> = {
 
 function getShapePresets(): ShapeGraphicPreset[] {
 	registerDefaultGraphics();
-	return graphicsRegistry.getAll().map((definition) => ({
+	return graphicsRegistry.getAll().filter((definition) => definition.id !== "icon").map((definition) => ({
 		shapeKey: definition.id,
 		name: definition.name,
 		definitionId: definition.id,

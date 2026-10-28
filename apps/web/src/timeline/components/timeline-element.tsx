@@ -378,6 +378,7 @@ export function TimelineElement({
 				<ContextMenuTrigger asChild>
 					<div
 						className="absolute top-0 select-none"
+						title={element.groupId ? `Group: ${element.groupId}` : undefined}
 						style={{
 							left: `${elementLeft}px`,
 							width: `${elementWidth}px`,
@@ -391,6 +392,7 @@ export function TimelineElement({
 									: undefined,
 						}}
 					>
+						{element.groupId && <span className="pointer-events-none absolute right-1 top-0 z-10 text-xs" title={`Group: ${element.groupId}`}>?</span>}
 						<ElementInner
 							element={element}
 							displayElement={renderElement}

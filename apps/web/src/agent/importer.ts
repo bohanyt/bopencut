@@ -1,7 +1,8 @@
 // Impor bundle agen (AGENT_WORKSPACE/bundle/bundle.json) menjadi proyek OpenCut biasa.
 // Semua elemen tetap elemen OpenCut asli, jadi bisa digeser/trim/hapus seperti biasa.
 import { EditorCore } from "@/core";
-import type { AudioTrack, EffectTrack, OverlayTrack, SceneTracks, VideoTrack } from "@/timeline/types";
+import type { AudioTrack, EffectTrack, GraphicTrack, TextTrack, OverlayTrack, SceneTracks, VideoTrack } from "@/timeline/types";
+import { loadIcon } from "@/stickers/providers/iconify";
 import { generateUUID } from "@/utils/id";
 import { type AgentAsset, type AgentElement, type LoadedMedia, type PendingKeyframe, buildAgentElement, loadAgentAsset, secs } from "./elements";
 
@@ -9,7 +10,7 @@ type Bundle = {
 	name: string; width: number; height: number;
 	assets: (AgentAsset & { key: string })[];
 	main: AgentElement[]; audio: AgentElement[];
-	overlay: { name: string; type: "video" | "effect"; elements: AgentElement[] }[];
+	overlay: { name: string; type: "video" | "effect" | "graphic" | "text"; elements: AgentElement[] }[];
 };
 
 export async function importAgentBundle({ onStatus }: { onStatus: (text: string) => void }): Promise<string> {
@@ -22,6 +23,10 @@ export async function importAgentBundle({ onStatus }: { onStatus: (text: string)
 	for (const a of bundle.assets) {
 		onStatus(`Memuat aset ${++done}/${bundle.assets.length}: ${a.name}`);
 		media.set(a.key, await loadAgentAsset({ projectId, asset: a }));
+	}
+
+	for (const e of [...bundle.main, ...bundle.audio, ...bundle.overlay.flatMap((t) => t.elements)]) {
+		if (e.icon) e.icon.svg = await loadIcon(e.icon.name);
 	}
 
 	onStatus("Menyusun timeline…");
@@ -37,7 +42,11 @@ export async function importAgentBundle({ onStatus }: { onStatus: (text: string)
 			const id = generateUUID();
 			return t.type === "effect"
 				? ({ id, name: t.name, type: "effect", hidden: false, elements: t.elements.map((e) => build(e, id)) } as EffectTrack)
-				: ({ id, name: t.name, type: "video", muted: true, hidden: false, elements: t.elements.map((e) => build(e, id)) } as VideoTrack);
+				: t.type === "text"
+					? ({ id, name: t.name, type: "text", hidden: false, elements: t.elements.map((e) => build(e, id)) } as TextTrack)
+					: t.type === "graphic"
+					? ({ id, name: t.name, type: "graphic", hidden: false, elements: t.elements.map((e) => build(e, id)) } as GraphicTrack)
+					: ({ id, name: t.name, type: "video", muted: true, hidden: false, elements: t.elements.map((e) => build(e, id)) } as VideoTrack);
 		}) as OverlayTrack[],
 		audio: [{ id: audioId, name: "Audio", type: "audio", muted: false, elements: bundle.audio.map((e) => build(e, audioId)) } as AudioTrack],
 	};

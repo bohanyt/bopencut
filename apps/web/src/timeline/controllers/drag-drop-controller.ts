@@ -1,3 +1,5 @@
+import { loadIcon } from "@/stickers/providers/iconify";
+import { parseStickerId } from "@/stickers/sticker-id";
 import type { DragEvent } from "react";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
@@ -401,6 +403,14 @@ export class DragDropController {
 		target: DropTarget;
 		dragData: Extract<TimelineDragData, { type: "sticker" }>;
 	}): void {
+		const parsed = parseStickerId({ stickerId: dragData.stickerId });
+		if (parsed.providerId === "icons") {
+			void loadIcon(parsed.providerValue).then((svg) => {
+				const element = buildGraphicElement({ definitionId: "icon", name: dragData.name, startTime: target.xPosition, params: { iconName: parsed.providerValue, svg } });
+				this.insertAtTarget({ element, target, trackType: "graphic" });
+			}).catch((error) => console.error("Failed to load icon:", error));
+			return;
+		}
 		const element = buildStickerElement({
 			stickerId: dragData.stickerId,
 			name: dragData.name,

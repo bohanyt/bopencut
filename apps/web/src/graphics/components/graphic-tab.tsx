@@ -53,7 +53,7 @@ export function GraphicTab({
 		localTime,
 	});
 
-	const shapeParams = definition.params.filter((p) => p.group !== "stroke");
+	const shapeParams = definition.params.filter((p) => p.group !== "stroke" && !(definition.id === "icon" && (p.key === "svg" || p.key === "iconName")));
 	const hasStrokeParams = definition.params.some((p) => p.group === "stroke");
 
 	return (

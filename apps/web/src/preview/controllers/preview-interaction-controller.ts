@@ -231,6 +231,7 @@ export class PreviewInteractionController {
 
 	private gesture: GestureSession = IDLE_GESTURE;
 	private editingTextState: EditingTextState | null = null;
+	private memberId: string | null = null;
 	private wasPlaying: boolean;
 	private unsubscribePlayback: (() => void) | null = null;
 
@@ -276,6 +277,7 @@ export class PreviewInteractionController {
 	}
 
 	cancel(): void {
+		this.memberId = null;
 		if (this.gesture.kind === "idle") return;
 		this.abortActiveGesture();
 		this.notify();
@@ -316,7 +318,15 @@ export class PreviewInteractionController {
 			elementsWithBounds: this.getVisibleElementsWithBounds(),
 		});
 
-		if (!hit || hit.element.type !== "text") return;
+		if (!hit) return;
+		if (hit.element.groupId && this.memberId !== hit.elementId) {
+			this.memberId = hit.elementId;
+			this.deps.selection.setSelected([
+				{ trackId: hit.trackId, elementId: hit.elementId },
+			]);
+			return;
+		}
+		if (hit.element.type !== "text") return;
 
 		this.editingTextState = {
 			trackId: hit.trackId,
@@ -420,20 +430,29 @@ export class PreviewInteractionController {
 		if (type !== "pointercancel") {
 			const clickTarget = pending.topmostHit;
 			if (!clickTarget) {
+				this.memberId = null;
 				this.deps.selection.clearSelection();
 			} else {
-				this.deps.selection.setSelected([
-					{
-						trackId: clickTarget.trackId,
-						elementId: clickTarget.elementId,
-					},
-				]);
+				if (this.memberId !== clickTarget.elementId) this.memberId = null;
+				this.deps.selection.setSelected(this.groupSelection(clickTarget));
 			}
 		}
 
 		this.gesture = IDLE_GESTURE;
 		this.clearSnapLines();
 		this.releaseCapturedPointer({ pointerState: pending });
+	}
+
+	private groupSelection(hit: ElementWithBounds): ElementRef[] {
+		const groupId = hit.element.groupId;
+		if (!groupId || this.memberId === hit.elementId)
+			return [{ trackId: hit.trackId, elementId: hit.elementId }];
+		const tracks = this.deps.scene.getTracks();
+		return [...tracks.overlay, tracks.main, ...tracks.audio].flatMap((track) =>
+			track.elements
+				.filter((element) => element.groupId === groupId)
+				.map((element) => ({ trackId: track.id, elementId: element.id })),
+		);
 	}
 
 	private notify(): void {
@@ -484,10 +503,12 @@ export class PreviewInteractionController {
 			return;
 		}
 
-		const dragSelection = buildDragSelection({
-			selectedElements: pending.selectedElements,
-			dragTarget,
-		});
+		const dragSelection = pending.selectedHit
+			? buildDragSelection({
+					selectedElements: pending.selectedElements,
+					dragTarget,
+				})
+			: this.groupSelection(dragTarget);
 		const draggableElements = toDragElementSnapshots({
 			elementsWithTracks: this.deps.timeline.getElementsWithTracks({
 				elements: dragSelection,
@@ -502,12 +523,7 @@ export class PreviewInteractionController {
 		}
 
 		if (pending.selectedHit === null) {
-			this.deps.selection.setSelected([
-				{
-					trackId: dragTarget.trackId,
-					elementId: dragTarget.elementId,
-				},
-			]);
+			this.deps.selection.setSelected(dragSelection);
 		}
 
 		this.gesture = {
@@ -568,17 +584,21 @@ export class PreviewInteractionController {
 			snappedPosition.y - firstElement.initialTransform.position.y;
 
 		this.deps.timeline.previewElements(
-			drag.elements.map(({ trackId, elementId, initialTransform, initialParams }) => ({
-				trackId,
-				elementId,
-				updates: {
-					params: {
-						...initialParams,
-						"transform.positionX": initialTransform.position.x + deltaSnappedX,
-						"transform.positionY": initialTransform.position.y + deltaSnappedY,
+			drag.elements.map(
+				({ trackId, elementId, initialTransform, initialParams }) => ({
+					trackId,
+					elementId,
+					updates: {
+						params: {
+							...initialParams,
+							"transform.positionX":
+								initialTransform.position.x + deltaSnappedX,
+							"transform.positionY":
+								initialTransform.position.y + deltaSnappedY,
+						},
 					},
-				},
-			})),
+				}),
+			),
 		);
 	}
 }

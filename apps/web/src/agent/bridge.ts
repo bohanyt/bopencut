@@ -11,6 +11,7 @@ import { pollFrames } from "./frames";
 import { validNote } from "./notes";
 import { AgentNotesCommand } from "./note-command";
 import type { SceneTracks } from "@/timeline/types";
+import { loadIcon } from "@/stickers/providers/iconify";
 import { generateUUID } from "@/utils/id";
 import { createEditLogger, type EditSnapshot } from "./edit-log";
 import { type AgentElement, type LoadedMedia, type PendingKeyframe, buildAgentElement, loadAgentAsset, secs } from "./elements";
@@ -28,7 +29,7 @@ export function agentSnapshot() {
 		elements: track.elements.map((e: any) => ({
 			id: e.id, agentId: e.agentId ?? null, type: e.type, name: e.name, media: e.mediaId ? mediaName.get(e.mediaId) ?? null : null,
 			start: s(e.startTime), duration: s(e.duration), end: s(e.startTime + e.duration), trimStart: s(e.trimStart), trimEnd: s(e.trimEnd),
-			effectType: e.effectType ?? null, params: e.params, hasKeyframes: !!e.animations && Object.keys(e.animations).length > 0,
+			effectType: e.effectType ?? null, graphic: e.definitionId ? { definitionId: e.definitionId } : null, icon: e.definitionId === "icon" ? { name: e.params.iconName, color: e.params.color } : null, groupId: e.groupId ?? null, params: e.params, hasKeyframes: !!e.animations && Object.keys(e.animations).length > 0,
 		})),
 	});
 	const t = scene.tracks;
@@ -98,7 +99,7 @@ type DraftOp =
 	| { op: "note"; text: string; start: number; end?: number; match?: Match[] }
 	| { op: "resolve-note"; id: string }
 	| { op: "reply-note"; id: string; text: string }
-	| { op: "add"; track: { name: string; type?: "video" | "audio" | "effect"; index?: number }; element: AgentElement };
+	| { op: "add"; track: { name: string; type?: "video" | "audio" | "effect" | "graphic" | "text"; index?: number }; element: AgentElement };
 type Draft = { schema: string; rev: string; label?: string; projectId?: string; ops: DraftOp[] };
 
 /** Ganti seluruh trek sekaligus; undo mengembalikan keadaan sebelum draf. */
@@ -154,9 +155,10 @@ export async function applyDraft(draft: Draft) {
 	// Aset untuk op add dimuat dulu (async); timeline baru diubah sekaligus sesudahnya.
 	const loaded = new Map<number, LoadedMedia>();
 	for (const [i, op] of draft.ops.entries()) {
-		if (op.op !== "add" || !op.element.asset || typeof op.element.asset === "string") continue;
+		if (op.op !== "add") continue;
 		try {
-			loaded.set(i, await loadAgentAsset({ projectId: project.metadata.id, asset: op.element.asset }));
+			if (op.element.icon) op.element = { ...op.element, icon: { ...op.element.icon, svg: await loadIcon(op.element.icon.name) } };
+			if (op.element.asset && typeof op.element.asset !== "string") loaded.set(i, await loadAgentAsset({ projectId: project.metadata.id, asset: op.element.asset }));
 		} catch (error) {
 			results[i] = { op: "add", name: op.element.name, ok: false, error: String(error) };
 		}
@@ -179,12 +181,14 @@ export async function applyDraft(draft: Draft) {
 	for (const [i, op] of draft.ops.entries()) {
 		if (results[i]) continue;
 		if (op.op === "add") {
-			const type = op.track.type ?? (loaded.get(i)?.type === "audio" ? "audio" : op.element.effect ? "effect" : "video");
+			const type = op.track.type ?? (loaded.get(i)?.type === "audio" ? "audio" : op.element.effect ? "effect" : (op.element.graphic || op.element.icon) ? "graphic" : op.element.text !== undefined ? "text" : "video");
 			let track: any = allTracks().find((t) => t.name === op.track.name && t.type === type);
 			if (!track) {
 				track = type === "audio"
 					? { id: generateUUID(), name: op.track.name, type, muted: false, elements: [] }
 					: type === "effect"
+						? { id: generateUUID(), name: op.track.name, type, hidden: false, elements: [] }
+						: type === "graphic" || type === "text"
 						? { id: generateUUID(), name: op.track.name, type, hidden: false, elements: [] }
 						: { id: generateUUID(), name: op.track.name, type, muted: true, hidden: false, elements: [] };
 				if (type === "audio") next.audio.push(track);
