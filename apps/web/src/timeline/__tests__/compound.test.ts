@@ -39,12 +39,21 @@ describe("compound clip", () => {
 		expect(nested.kind).toBe("compound");
 		expect(nested.isMain).toBe(false);
 		// Earliest start (box, 1 s) becomes nested time 0.
-		expect(layout(nested.tracks)).toEqual([
-			{ id: "t-text", type: "text", elements: [["title", t(1), t(3), 0, 0]] },
-			{ id: "t-gfx", type: "graphic", elements: [["box", t(0), t(4), 0, 0]] },
-			{ id: nested.tracks.main.id, type: "video", elements: [] },
-			{ id: "t-music", type: "audio", elements: [["music", t(0.5), t(2), 0, 0]] },
+		const nestedLayout = layout(nested.tracks);
+		expect(nestedLayout.map(({ type, elements }) => ({ type, elements }))).toEqual([
+			{ type: "text", elements: [["title", t(1), t(3), 0, 0]] },
+			{ type: "graphic", elements: [["box", t(0), t(4), 0, 0]] },
+			{ type: "video", elements: [] },
+			{ type: "audio", elements: [["music", t(0.5), t(2), 0, 0]] },
 		]);
+		// Nested tracks get fresh ids; compoundOrigin maps them back to the host tracks.
+		expect(nestedLayout.map(({ id }) => nested.compoundOrigin?.trackSources[id])).toEqual([
+			"t-text",
+			"t-gfx",
+			"t-main",
+			"t-music",
+		]);
+		expect(nested.compoundOrigin?.hostTrackOrder).toEqual(["t-text", "t-gfx", "t-main", "t-music"]);
 
 		const compound = findCompound(result.scenes);
 		expect(compound.startTime).toBe(t(1));

@@ -1,5 +1,4 @@
-import type { SceneTracks } from "@/timeline";
-import { getTrackTypeForElementType } from "@/timeline/placement/compatibility";
+import type { SceneTracks, TrackType } from "@/timeline";
 import { canPlaceTimeSpansOnTrack } from "@/timeline/placement/overlap";
 import type {
 	GroupMoveResult,
@@ -173,9 +172,7 @@ function resolveNewTrackMove({
 	const createTracks: PlannedTrackCreation[] = sortedMembers.map(
 		(member, memberIndex) => ({
 			id: newTrackIds[memberIndex],
-			type: getTrackTypeForElementType({
-				elementType: member.elementType,
-			}),
+			type: member.trackType,
 			index: blockStartIndex + memberIndex,
 		}),
 	);
@@ -258,9 +255,7 @@ function resolveExistingTrackIdsByElementId({
 		const member = sortedMembers[memberIndex];
 		const targetPlacement = findCompatibleTrackPlacement({
 			tracks,
-			requiredTrackType: getTrackTypeForElementType({
-				elementType: member.elementType,
-			}),
+			requiredTrackType: member.trackType,
 			startDisplayIndex: upperBoundaryIndex - 1,
 			step: -1,
 			usedTrackIds,
@@ -283,9 +278,7 @@ function resolveExistingTrackIdsByElementId({
 		const member = sortedMembers[memberIndex];
 		const targetPlacement = findCompatibleTrackPlacement({
 			tracks,
-			requiredTrackType: getTrackTypeForElementType({
-				elementType: member.elementType,
-			}),
+			requiredTrackType: member.trackType,
 			startDisplayIndex: lowerBoundaryIndex + 1,
 			step: 1,
 			usedTrackIds,
@@ -310,7 +303,7 @@ function findCompatibleTrackPlacement({
 	usedTrackIds,
 }: {
 	tracks: SceneTracks;
-	requiredTrackType: ReturnType<typeof getTrackTypeForElementType>;
+	requiredTrackType: TrackType;
 	startDisplayIndex: number;
 	step: -1 | 1;
 	usedTrackIds: Set<string>;

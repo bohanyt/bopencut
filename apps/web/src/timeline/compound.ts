@@ -15,7 +15,6 @@ import { buildEmptyTrack } from "@/timeline/placement/track-factory";
 import { canPlaceTimeSpansOnTrack } from "@/timeline/placement/overlap";
 import { canElementHaveAudio, isRetimableElement } from "@/timeline/element-utils";
 import { canTrackHaveAudio } from "@/timeline/track-capabilities";
-import { clampDb, getElementVolume } from "@/timeline/audio-state";
 import { splitAnimationsAtTime } from "@/animation";
 import type { ElementAnimations, ScalarChannel } from "@/animation/types";
 import { getSourceSpanAtClipTime } from "@/retime";
@@ -232,6 +231,7 @@ function shiftElement<T extends TimelineElement>(element: T, offset: number): T 
 	return { ...element, startTime: (element.startTime + offset) as MediaTime };
 }
 
+
 function removeEmptiedTracks<T extends TimelineTrack>(
 	before: T[],
 	after: T[],
@@ -240,6 +240,23 @@ function removeEmptiedTracks<T extends TimelineTrack>(
 		(track, index) =>
 			track.elements.length > 0 || before[index].elements.length === 0,
 	);
+}
+
+function isTrackHidden(track: TimelineTrack): boolean {
+	return "hidden" in track && track.hidden === true;
+}
+
+/**
+ * A host track the compound can sit on without changing how its content looks or sounds.
+ * The selected elements' own track flags travel with their nested tracks, so only a
+ * plain (unmuted, visible) track is safe to reuse.
+ */
+function isNeutralTrack(track: TimelineTrack): boolean {
+	return !(canTrackHaveAudio(track) && track.muted) && !isTrackHidden(track);
+}
+
+function findTrackIn(tracks: SceneTracks, trackId: string): TimelineTrack | undefined {
+	return getOrderedTracks(tracks).find((track) => track.id === trackId);
 }
 
 // --- create ---
@@ -287,37 +304,37 @@ export function buildCompoundFromElements({
 			...track,
 			elements: track.elements.filter((element) => !isSelected(track, element)),
 		}) as T;
-	const nestedCopy = <T extends TimelineTrack>(track: T, id: string): T =>
-		({
+	const hasPicked = (track: TimelineTrack) =>
+		track.elements.some((element) => isSelected(track, element));
+
+	// Nested tracks get fresh ids; compoundOrigin remembers which host track each came from.
+	const trackSources: Record<string, string> = {};
+	const nestedCopy = <T extends TimelineTrack>(track: T, id = generateUUID()): T => {
+		trackSources[id] = track.id;
+		return {
 			...track,
 			id,
 			elements: track.elements
 				.filter((element) => isSelected(track, element))
 				.map((element) => shiftElement(element, -minStart)),
-		}) as T;
-	// Nested tracks keep the source track id when the source track goes away, so ungroup can restore it.
-	const nestedTrackId = (track: TimelineTrack) =>
-		track.elements.every((element) => isSelected(track, element))
-			? track.id
-			: generateUUID();
-	const hasPicked = (track: TimelineTrack) =>
-		track.elements.some((element) => isSelected(track, element));
+		} as T;
+	};
 
 	const nestedScene: TScene = {
 		...buildDefaultScene({ name, isMain: false }),
 		kind: "compound",
 	};
 	nestedScene.tracks = {
-		overlay: tracks.overlay
-			.filter(hasPicked)
-			.map((track) => nestedCopy(track, nestedTrackId(track))),
+		overlay: tracks.overlay.filter(hasPicked).map((track) => nestedCopy(track)),
 		main: {
 			...nestedCopy(tracks.main, nestedScene.tracks.main.id),
 			name: nestedScene.tracks.main.name,
 		},
-		audio: tracks.audio
-			.filter(hasPicked)
-			.map((track) => nestedCopy(track, nestedTrackId(track))),
+		audio: tracks.audio.filter(hasPicked).map((track) => nestedCopy(track)),
+	};
+	nestedScene.compoundOrigin = {
+		hostTrackOrder: getOrderedTracks(tracks).map((track) => track.id),
+		trackSources,
 	};
 
 	const overlayAfter = tracks.overlay.map(without);
@@ -342,6 +359,10 @@ export function buildCompoundFromElements({
 		params: buildDefaultParamValues(getBuiltInElementParams({ type: "compound" })),
 	};
 	const span = [{ startTime: compound.startTime, duration }];
+	const canHost = (track: TimelineTrack | undefined): track is TimelineTrack =>
+		track !== undefined &&
+		isNeutralTrack(track) &&
+		canPlaceTimeSpansOnTrack({ track, timeSpans: span });
 	const trackType = getCompoundTrackType({
 		scenes: nextScenes,
 		sceneId: nestedScene.id,
@@ -349,24 +370,19 @@ export function buildCompoundFromElements({
 
 	let trackId: string;
 	if (trackType === "video") {
-		const fromMain = tracks.main.elements.some((element) =>
-			isSelected(tracks.main, element),
-		);
+		const fromMain = hasPicked(tracks.main);
 		const topSourceIndex = tracks.overlay.findIndex(hasPicked);
 		const topSource = topSourceIndex >= 0 ? tracks.overlay[topSourceIndex] : null;
 		const reusableTop = topSource
 			? nextTracks.overlay.find((track) => track.id === topSource.id)
 			: undefined;
-		if (fromMain && canPlaceTimeSpansOnTrack({ track: nextTracks.main, timeSpans: span })) {
+		if (fromMain && canHost(nextTracks.main)) {
 			nextTracks.main = {
 				...nextTracks.main,
 				elements: [...nextTracks.main.elements, compound],
 			};
 			trackId = nextTracks.main.id;
-		} else if (
-			reusableTop?.type === "video" &&
-			canPlaceTimeSpansOnTrack({ track: reusableTop, timeSpans: span })
-		) {
+		} else if (reusableTop?.type === "video" && canHost(reusableTop)) {
 			nextTracks.overlay = nextTracks.overlay.map((track) =>
 				track.id === reusableTop.id
 					? { ...reusableTop, elements: [...reusableTop.elements, compound] }
@@ -393,7 +409,7 @@ export function buildCompoundFromElements({
 		const topSourceIndex = tracks.audio.findIndex(hasPicked);
 		const topSource = tracks.audio[topSourceIndex];
 		const reusableTop = nextTracks.audio.find((track) => track.id === topSource?.id);
-		if (reusableTop && canPlaceTimeSpansOnTrack({ track: reusableTop, timeSpans: span })) {
+		if (canHost(reusableTop)) {
 			nextTracks.audio = nextTracks.audio.map((track) =>
 				track.id === reusableTop.id
 					? { ...reusableTop, elements: [...reusableTop.elements, compound] }
@@ -431,8 +447,64 @@ export function buildCompoundFromElements({
 
 // --- ungroup ---
 
-function isSceneReferenced(scenes: TScene[], sceneId: string): boolean {
+/** True while some compound clip still points at the scene (it must not be deleted then). */
+export function isCompoundSceneReferenced({
+	scenes,
+	sceneId,
+}: {
+	scenes: TScene[];
+	sceneId: string;
+}): boolean {
 	return scenes.some((scene) => getReferencedSceneIds(scene.tracks).includes(sceneId));
+}
+
+function readVolumeDb(element: TimelineElement): number {
+	return typeof element.params.volume === "number" ? element.params.volume : 0;
+}
+
+/**
+ * Applies a compound's volume (dB, not clamped so nested gains add up exactly) and mute to an
+ * audio-bearing element: audio, video (source audio) or a nested compound.
+ */
+function foldCompoundAudio<T extends TimelineElement>({
+	element,
+	gainDb,
+	muted,
+}: {
+	element: T;
+	gainDb: number;
+	muted: boolean;
+}): T {
+	if (!canElementHaveAudio(element) && !isCompoundElement(element)) return element;
+	if (gainDb === 0 && !muted) return element;
+	return {
+		...element,
+		params: {
+			...element.params,
+			volume: readVolumeDb(element) + gainDb,
+			muted: element.params.muted === true || muted,
+		},
+		animations: shiftVolumeAnimation(element.animations, gainDb),
+	};
+}
+
+/** Index in `section` next to the nearest original neighbour of `sourceTrackId`, if one survives. */
+function findOriginalPosition(
+	section: TimelineTrack[],
+	order: string[],
+	sourceTrackId: string | undefined,
+): number | null {
+	const index = sourceTrackId ? order.indexOf(sourceTrackId) : -1;
+	if (index < 0) return null;
+	for (let j = index - 1; j >= 0; j--) {
+		const at = section.findIndex((track) => track.id === order[j]);
+		if (at >= 0) return at + 1;
+	}
+	for (let j = index + 1; j < order.length; j++) {
+		const at = section.findIndex((track) => track.id === order[j]);
+		if (at >= 0) return at;
+	}
+	return null;
 }
 
 export function ungroupCompoundElement({
@@ -447,7 +519,7 @@ export function ungroupCompoundElement({
 	const host = findScene(scenes, hostSceneId);
 	if (!host) throw new Error(`Scene not found: ${hostSceneId}`);
 	const tracks = host.tracks;
-	const sourceTrack = getOrderedTracks(tracks).find((track) => track.id === ref.trackId);
+	const sourceTrack = findTrackIn(tracks, ref.trackId);
 	const compound = sourceTrack?.elements.find((element) => element.id === ref.elementId);
 	if (!sourceTrack || !compound || !isCompoundElement(compound)) {
 		throw new Error("Compound clip not found");
@@ -458,28 +530,39 @@ export function ungroupCompoundElement({
 	const rangeStart = compound.trimStart;
 	const rangeEnd = (compound.trimStart + compound.duration) as MediaTime;
 	const offset = compound.startTime - compound.trimStart;
+	const gainDb = readVolumeDb(compound);
+	const muted = compound.params.muted === true;
 
 	// Drop the compound; its track goes too if that leaves it empty (never the main track).
 	const dropCompound = <T extends TimelineTrack>(track: T): T =>
 		(track.id === sourceTrack.id
 			? { ...track, elements: track.elements.filter((element) => element.id !== compound.id) }
 			: track) as T;
+	const keep = (track: TimelineTrack) =>
+		track.id !== sourceTrack.id || track.elements.length > 0;
 	const overlayKept = tracks.overlay.map(dropCompound);
 	const audioKept = tracks.audio.map(dropCompound);
+	const nextTracks: SceneTracks = {
+		overlay: overlayKept.filter(keep),
+		main: dropCompound(tracks.main),
+		audio: audioKept.filter(keep),
+	};
+	// Where the compound's own track was: the fallback for tracks without a surviving neighbour.
 	const sourceOverlayIndex = tracks.overlay.findIndex((track) => track.id === sourceTrack.id);
 	const sourceAudioIndex = tracks.audio.findIndex((track) => track.id === sourceTrack.id);
-	const isEmptiedSource = (track: TimelineTrack) =>
-		track.id === sourceTrack.id && track.elements.length === 0;
-	const nextTracks: SceneTracks = {
-		overlay: overlayKept.filter((track) => !isEmptiedSource(track)),
-		main: dropCompound(tracks.main),
-		audio: audioKept.filter((track) => !isEmptiedSource(track)),
-	};
+	let overlayFallback =
+		sourceOverlayIndex >= 0
+			? overlayKept.slice(0, sourceOverlayIndex).filter(keep).length
+			: nextTracks.overlay.length;
+	let audioFallback =
+		sourceAudioIndex >= 0 ? audioKept.slice(0, sourceAudioIndex).filter(keep).length : 0;
 
 	const remainingScenes = scenes.map((scene) =>
 		scene.id === hostSceneId ? { ...scene, tracks: nextTracks } : scene,
 	);
-	const keepNested = isSceneReferenced(remainingScenes, nested.id);
+	const keepNested = isCompoundSceneReferenced({ scenes: remainingScenes, sceneId: nested.id });
+	const order = nested.compoundOrigin?.hostTrackOrder ?? [];
+	const trackSources = nested.compoundOrigin?.trackSources ?? {};
 
 	const usedElementIds = new Set(
 		getOrderedTracks(nextTracks).flatMap((track) => track.elements.map((e) => e.id)),
@@ -487,67 +570,71 @@ export function ungroupCompoundElement({
 	const usedTrackIds = new Set(getOrderedTracks(nextTracks).map((track) => track.id));
 	const restored: ElementRef[] = [];
 
-	const restoreElements = <T extends TimelineTrack>(track: T, trackId: string) =>
+	const prepareElements = (track: TimelineTrack): TimelineElement[] =>
 		track.elements.flatMap((element) => {
 			const clipped = clipElementToRange({ element, rangeStart, rangeEnd });
 			if (!clipped) return [];
 			// Shared content (or an id clash) gets fresh ids so no scene ends up with duplicates.
 			const id = keepNested || usedElementIds.has(element.id) ? generateUUID() : element.id;
 			usedElementIds.add(id);
-			restored.push({ trackId, elementId: id });
-			return [{ ...shiftElement(clipped, offset), id }];
-		}) as T["elements"];
-	const restoreTrack = <T extends TimelineTrack>(track: T): T | null => {
-		const id = usedTrackIds.has(track.id) ? generateUUID() : track.id;
-		const elements = restoreElements(track, id);
-		if (elements.length === 0) return null;
-		usedTrackIds.add(id);
-		return { ...track, id, elements } as T;
+			return [foldCompoundAudio({ element: { ...shiftElement(clipped, offset), id }, gainDb, muted })];
+		});
+	const mergeInto = (target: TimelineTrack, elements: TimelineElement[]) => {
+		const merged = { ...target, elements: [...target.elements, ...elements] } as TimelineTrack;
+		if (merged.id === nextTracks.main.id) nextTracks.main = merged as VideoTrack;
+		else if (merged.type === "audio")
+			nextTracks.audio = nextTracks.audio.map((track) => (track.id === merged.id ? merged : track)) as AudioTrack[];
+		else
+			nextTracks.overlay = nextTracks.overlay.map((track) => (track.id === merged.id ? merged : track)) as OverlayTrack[];
+		for (const element of elements) restored.push({ trackId: merged.id, elementId: element.id });
 	};
 
-	const newOverlay: OverlayTrack[] = [];
-	const nestedMainElements = nested.tracks.main.elements;
-	if (nestedMainElements.length > 0) {
-		const timeSpans = nestedMainElements
-			.map((element) => clipElementToRange({ element, rangeStart, rangeEnd }))
-			.filter((element): element is NonNullable<typeof element> => element !== null)
-			.map((element) => ({ startTime: (element.startTime + offset) as MediaTime, duration: element.duration }));
-		if (canPlaceTimeSpansOnTrack({ track: nextTracks.main, timeSpans })) {
-			nextTracks.main = {
-				...nextTracks.main,
-				elements: [
-					...nextTracks.main.elements,
-					...restoreElements(nested.tracks.main, nextTracks.main.id),
-				],
-			};
+	for (const nestedTrack of getOrderedTracks(nested.tracks)) {
+		const elements = prepareElements(nestedTrack);
+		if (elements.length === 0) continue;
+		const isNestedMain = nestedTrack.id === nested.tracks.main.id;
+		const sourceTrackId =
+			trackSources[nestedTrack.id] ?? (isNestedMain ? nextTracks.main.id : undefined);
+		const timeSpans = elements.map((element) => ({
+			startTime: element.startTime,
+			duration: element.duration,
+		}));
+
+		// Back onto the original track when it still exists and has room.
+		const survivor = sourceTrackId ? findTrackIn(nextTracks, sourceTrackId) : undefined;
+		if (
+			survivor &&
+			survivor.type === nestedTrack.type &&
+			canPlaceTimeSpansOnTrack({ track: survivor, timeSpans })
+		) {
+			mergeInto(survivor, elements);
+			continue;
+		}
+
+		const id =
+			sourceTrackId && !usedTrackIds.has(sourceTrackId) ? sourceTrackId : generateUUID();
+		usedTrackIds.add(id);
+		const track = (
+			isNestedMain
+				? {
+						...buildEmptyTrack({ id, type: "video" }),
+						muted: nested.tracks.main.muted,
+						hidden: nested.tracks.main.hidden,
+						elements,
+					}
+				: { ...nestedTrack, id, elements }
+		) as TimelineTrack;
+		for (const element of elements) restored.push({ trackId: id, elementId: element.id });
+		if (track.type === "audio") {
+			const at =
+				findOriginalPosition(nextTracks.audio, order, sourceTrackId) ?? audioFallback++;
+			nextTracks.audio.splice(at, 0, track);
 		} else {
-			const track = restoreTrack({
-				...buildEmptyTrack({ id: generateUUID(), type: "video" }),
-				elements: nested.tracks.main.elements,
-			});
-			if (track) newOverlay.push(track);
+			const at =
+				findOriginalPosition(nextTracks.overlay, order, sourceTrackId) ?? overlayFallback++;
+			nextTracks.overlay.splice(at, 0, track);
 		}
 	}
-	const overlayFromNested = nested.tracks.overlay
-		.map((track) => restoreTrack(track))
-		.filter((track): track is OverlayTrack => track !== null);
-	newOverlay.unshift(...overlayFromNested);
-	const audioFromNested = nested.tracks.audio
-		.map((track) => restoreTrack(track))
-		.filter((track): track is AudioTrack => track !== null);
-
-	const overlayInsert =
-		sourceOverlayIndex >= 0
-			? overlayKept
-					.slice(0, sourceOverlayIndex)
-					.filter((track) => !isEmptiedSource(track)).length
-			: nextTracks.overlay.length;
-	nextTracks.overlay.splice(overlayInsert, 0, ...newOverlay);
-	const audioInsert =
-		sourceAudioIndex >= 0
-			? audioKept.slice(0, sourceAudioIndex).filter((track) => !isEmptiedSource(track)).length
-			: 0;
-	nextTracks.audio.splice(audioInsert, 0, ...audioFromNested);
 
 	const nextScenes = scenes
 		.filter((scene) => keepNested || scene.id !== nested.id)
@@ -557,6 +644,75 @@ export function ungroupCompoundElement({
 				: scene,
 		);
 	return { scenes: nextScenes, elements: restored };
+}
+
+// --- consistency (applied by the scenes manager on every change) ---
+
+/**
+ * Keeps every compound clip's sourceDuration equal to its nested scene's duration. A clip's
+ * timeline span (startTime, duration, trimStart) never changes implicitly: growth becomes
+ * trimEnd (the clip can then be extended); after shrinking, trimEnd is 0 and the clip shows
+ * an empty tail until it is shortened. Pure and deterministic, so undo stays consistent.
+ */
+export function syncCompoundDurations(scenes: TScene[]): TScene[] {
+	if (!scenes.some(isCompoundScene)) return scenes;
+	// Spans are never touched here, so every scene duration can be read up front.
+	const durations = new Map(
+		scenes.map((scene) => [scene.id, calculateTotalDuration({ tracks: scene.tracks })]),
+	);
+	let changed = false;
+	const next = scenes.map((scene) => {
+		let sceneChanged = false;
+		const syncTrack = <T extends TimelineTrack>(track: T): T => {
+			let trackChanged = false;
+			const elements = track.elements.map((element) => {
+				if (!isCompoundElement(element)) return element;
+				const sourceDuration = durations.get(element.sceneId);
+				if (sourceDuration === undefined) return element;
+				const trimEnd = Math.max(
+					0,
+					sourceDuration - element.trimStart - element.duration,
+				) as MediaTime;
+				if (element.sourceDuration === sourceDuration && element.trimEnd === trimEnd) {
+					return element;
+				}
+				trackChanged = true;
+				return { ...element, sourceDuration, trimEnd };
+			});
+			if (!trackChanged) return track;
+			sceneChanged = true;
+			return { ...track, elements } as T;
+		};
+		const tracks: SceneTracks = {
+			overlay: scene.tracks.overlay.map(syncTrack),
+			main: syncTrack(scene.tracks.main),
+			audio: scene.tracks.audio.map(syncTrack),
+		};
+		if (!sceneChanged) return scene;
+		changed = true;
+		return { ...scene, tracks };
+	});
+	return changed ? next : scenes;
+}
+
+/** Throws CompoundCycleError if giving scene `sceneId` these `tracks` would make it contain itself. */
+export function assertTracksAcyclic({
+	scenes,
+	sceneId,
+	tracks,
+}: {
+	scenes: TScene[];
+	sceneId: string;
+	tracks: SceneTracks;
+}): void {
+	const referenced = getReferencedSceneIds(tracks);
+	if (referenced.length === 0) return;
+	const nextScenes = scenes.map((scene) => (scene.id === sceneId ? { ...scene, tracks } : scene));
+	for (const fromSceneId of referenced) {
+		if (sceneReachesScene({ scenes: nextScenes, fromSceneId, targetSceneId: sceneId })) {
+			throw new CompoundCycleError(sceneId);
+		}
+	}
 }
 
 // --- audio ---
@@ -571,7 +727,7 @@ function shiftVolumeAnimation(
 		...animations,
 		volume: {
 			...channel,
-			keys: channel.keys.map((key) => ({ ...key, value: clampDb(key.value + gainDb) })),
+			keys: channel.keys.map((key) => ({ ...key, value: key.value + gainDb })),
 		},
 	};
 }
@@ -579,7 +735,8 @@ function shiftVolumeAnimation(
 /**
  * Returns `tracks` plus virtual tracks holding the audio of every compound clip (recursively):
  * nested audio/video elements cut to the compound's trim window, moved to parent time, with the
- * compound's volume added (dB) and its mute applied. Only the audio mixers read these tracks.
+ * compound's volume added (dB, unclamped so nested gains add up; the final gain is clamped once
+ * when converted to linear) and its mute applied. Only the audio mixers read these tracks.
  */
 export function expandCompoundAudioTracks({
 	tracks,
@@ -608,7 +765,7 @@ export function expandCompoundAudioTracks({
 				scenes,
 				stack: [...stack, nested.id],
 			});
-			const gainDb = typeof compound.params.volume === "number" ? compound.params.volume : 0;
+			const gainDb = readVolumeDb(compound);
 			const offset = compound.startTime - compound.trimStart;
 			const rangeEnd = (compound.trimStart + compound.duration) as MediaTime;
 
@@ -624,14 +781,13 @@ export function expandCompoundAudioTracks({
 					if (!clipped) return [];
 					return [
 						{
-							...shiftElement(clipped, offset),
+							...foldCompoundAudio({
+								element: shiftElement(clipped, offset),
+								gainDb,
+								muted: false,
+							}),
 							// Unique per compound instance: one nested scene can be used by several clips.
 							id: `${compound.id}/${element.id}`,
-							params: {
-								...clipped.params,
-								volume: clampDb(getElementVolume({ element: clipped }) + gainDb),
-							},
-							animations: shiftVolumeAnimation(clipped.animations, gainDb),
 						},
 					];
 				});
@@ -652,4 +808,42 @@ export function expandCompoundAudioTracks({
 		main: tracks.main,
 		audio: [...tracks.audio, ...extraAudio],
 	};
+}
+
+// --- blurred background ---
+
+/**
+ * Main-track media in parent time, looking through compound clips into their nested main
+ * tracks (cut to each clip's trim window), so the blurred background keeps working after the
+ * main-track video is grouped. Hidden elements and hidden nested main tracks are skipped.
+ */
+export function expandCompoundMainTrackMedia({
+	elements,
+	scenes,
+	stack = [],
+}: {
+	elements: TimelineElement[];
+	scenes: TScene[];
+	stack?: string[];
+}): TimelineElement[] {
+	return elements.flatMap((element) => {
+		if ("hidden" in element && element.hidden) return [];
+		if (!isCompoundElement(element)) return [element];
+		const nested = findScene(scenes, element.sceneId);
+		if (!nested || nested.tracks.main.hidden || stack.includes(nested.id)) return [];
+		const offset = element.startTime - element.trimStart;
+		const rangeEnd = (element.trimStart + element.duration) as MediaTime;
+		return expandCompoundMainTrackMedia({
+			elements: nested.tracks.main.elements,
+			scenes,
+			stack: [...stack, nested.id],
+		}).flatMap((inner) => {
+			const clipped = clipElementToRange({
+				element: inner,
+				rangeStart: element.trimStart,
+				rangeEnd,
+			});
+			return clipped ? [shiftElement(clipped, offset)] : [];
+		});
+	});
 }

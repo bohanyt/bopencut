@@ -75,6 +75,7 @@ export class MoveElementCommand extends Command {
 			const validation = validateElementTrackCompatibility({
 				element: sourceElement,
 				track: targetTrack,
+				scenes: editor.scenes.getScenes(),
 			});
 			if (!validation.isValid) {
 				throw new Error(validation.errorMessage);

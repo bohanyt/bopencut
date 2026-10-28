@@ -14,10 +14,10 @@ import { floatToFrameRate } from "@/fps/utils";
 import { graphicsRegistry, registerDefaultGraphics } from "@/graphics";
 import {
 	applyPlacement,
-	canElementGoOnTrack,
 	resolveTrackPlacement,
 	validateElementTrackCompatibility,
 } from "@/timeline/placement";
+import { getTrackTypeForElement } from "@/timeline/placement/compatibility";
 import { roundMediaTime } from "@/wasm";
 
 type InsertElementPlacement =
@@ -210,14 +210,14 @@ export class InsertElementCommand extends Command {
 		element: TimelineElement;
 	}): { updatedTracks: SceneTracks; targetTrackId: string } | null {
 		const placement = this.placement;
+		const scenes = EditorCore.getInstance().scenes.getScenes();
+		// Compound clips need a video or audio track depending on what they contain.
+		const requiredTrackType = getTrackTypeForElement({ element, scenes });
 
 		if (
 			placement.mode === "auto" &&
 			placement.trackType &&
-			!canElementGoOnTrack({
-				elementType: element.type,
-				trackType: placement.trackType,
-			})
+			placement.trackType !== requiredTrackType
 		) {
 			console.error(
 				`${element.type} elements cannot be placed on ${placement.trackType} tracks`,
@@ -227,9 +227,7 @@ export class InsertElementCommand extends Command {
 
 		const placementResult = resolveTrackPlacement({
 			tracks,
-			...(placement.mode === "auto" && placement.trackType
-				? { trackType: placement.trackType }
-				: { elementType: element.type }),
+			trackType: requiredTrackType,
 			timeSpans: [
 				{
 					startTime: element.startTime,
@@ -256,6 +254,7 @@ export class InsertElementCommand extends Command {
 				const validation = validateElementTrackCompatibility({
 					element,
 					track: targetTrack,
+					scenes,
 				});
 				console.error(validation.errorMessage);
 			}

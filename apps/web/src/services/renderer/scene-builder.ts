@@ -1,5 +1,8 @@
 import type { CompoundElement, SceneTracks, TScene, TimelineTrack } from "@/timeline";
-import { CompoundCycleError } from "@/timeline/compound";
+import {
+	CompoundCycleError,
+	expandCompoundMainTrackMedia,
+} from "@/timeline/compound";
 import { CompoundNode } from "./nodes/compound-node";
 import type { MediaAsset } from "@/media/types";
 import { RootNode } from "./nodes/root-node";
@@ -238,17 +241,23 @@ function buildBlurBackgroundNodes({
 	track,
 	mediaMap,
 	blurIntensity,
+	scenes,
 }: {
 	track: TimelineTrack | undefined;
 	mediaMap: Map<string, MediaAsset>;
 	blurIntensity: number;
+	scenes: TScene[];
 }): AnyBaseNode[] {
 	if (!track) {
 		return [];
 	}
 
 	const nodes: AnyBaseNode[] = [];
-	const elements = getVisibleSortedElements({ track });
+	// A compound clip on the main track blurs the media of its nested main track.
+	const elements = expandCompoundMainTrackMedia({
+		elements: getVisibleSortedElements({ track }),
+		scenes,
+	});
 
 	for (const element of elements) {
 		if (element.type !== "video" && element.type !== "image") {
@@ -318,6 +327,7 @@ export function buildScene({
 			mediaMap,
 			blurIntensity:
 				background.blurIntensity ?? DEFAULT_BACKGROUND_BLUR_INTENSITY,
+			scenes,
 		});
 		for (const node of blurNodes) {
 			rootNode.add(node);

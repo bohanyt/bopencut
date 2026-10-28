@@ -34,20 +34,20 @@ function base<T extends TimelineElement["type"]>(
 		params,
 	};
 }
-const text = (id: string, start: number, duration: number) =>
+export const text = (id: string, start: number, duration: number) =>
 	({ ...base("text", id, start, duration, { content: id }) }) as TextElement;
-const rect = (id: string, start: number, duration: number) =>
+export const rect = (id: string, start: number, duration: number) =>
 	({ ...base("graphic", id, start, duration), definitionId: "rectangle" }) as GraphicElement;
-const audio = (id: string, start: number, duration: number, volume = 0) =>
+export const audio = (id: string, start: number, duration: number, volume = 0) =>
 	({
 		...base("audio", id, start, duration, { volume }),
 		sourceType: "upload",
 		mediaId: `media-${id}`,
 	}) as AudioElement;
-const video = (id: string, start: number, duration: number) =>
+export const video = (id: string, start: number, duration: number) =>
 	({ ...base("video", id, start, duration), mediaId: `media-${id}` }) as VideoElement;
 
-function scene(id: string, tracks: SceneTracks, extra: Partial<TScene> = {}): TScene {
+export function scene(id: string, tracks: SceneTracks, extra: Partial<TScene> = {}): TScene {
 	return {
 		id,
 		name: id,

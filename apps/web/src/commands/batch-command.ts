@@ -6,16 +6,7 @@ export class BatchCommand extends Command {
 	}
 
 	execute(): CommandResult | undefined {
-		let latestSelectionResult: CommandResult | undefined;
-
-		for (const command of this.commands) {
-			const result = command.execute();
-			if (result?.selection !== undefined) {
-				latestSelectionResult = result;
-			}
-		}
-
-		return latestSelectionResult;
+		return this.runAll((command) => command.execute());
 	}
 
 	undo(): void {
@@ -25,13 +16,29 @@ export class BatchCommand extends Command {
 	}
 
 	redo(): CommandResult | undefined {
-		let latestSelectionResult: CommandResult | undefined;
+		return this.runAll((command) => command.redo());
+	}
 
-		for (const command of this.commands) {
-			const result = command.redo();
-			if (result?.selection !== undefined) {
-				latestSelectionResult = result;
+	// All or nothing: if one command throws (e.g. a compound cycle), the earlier ones are undone.
+	private runAll(
+		run: (command: Command) => CommandResult | undefined,
+	): CommandResult | undefined {
+		let latestSelectionResult: CommandResult | undefined;
+		const done: Command[] = [];
+
+		try {
+			for (const command of this.commands) {
+				const result = run(command);
+				done.push(command);
+				if (result?.selection !== undefined) {
+					latestSelectionResult = result;
+				}
 			}
+		} catch (error) {
+			for (const command of done.reverse()) {
+				command.undo();
+			}
+			throw error;
 		}
 
 		return latestSelectionResult;

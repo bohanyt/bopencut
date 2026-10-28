@@ -22,12 +22,15 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { canDeleteScene, getMainScene } from "@/timeline/scenes";
+import { getUserScenes } from "@/timeline/compound";
 import { toast } from "sonner";
 import { useEditor } from "@/editor/use-editor";
 
 export function ScenesView({ children }: { children: React.ReactNode }) {
 	const editor = useEditor();
-	const scenes = editor.scenes.getScenes();
+	const allScenes = editor.scenes.getScenes();
+	// Compound clip content is entered from the timeline, not picked here.
+	const scenes = getUserScenes({ scenes: allScenes });
 	const currentScene = editor.scenes.getActiveScene();
 	const [isSelectMode, setIsSelectMode] = useState(false);
 	const [selectedScenes, setSelectedScenes] = useState<Set<string>>(new Set());
@@ -69,7 +72,7 @@ export function ScenesView({ children }: { children: React.ReactNode }) {
 				continue;
 			}
 
-			const { canDelete, reason } = canDeleteScene({ scene });
+			const { canDelete, reason } = canDeleteScene({ scene, scenes: allScenes });
 			if (!canDelete) {
 				toast.error(reason || "Failed to delete scene");
 				continue;

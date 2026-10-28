@@ -1,4 +1,5 @@
-import type { ElementType, TrackType } from "@/timeline";
+import type { ElementType, TScene, TrackType } from "@/timeline";
+import { getCompoundTrackType } from "@/timeline/compound";
 
 const ELEMENT_TRACK_MAP: Record<ElementType, TrackType> = {
 	audio: "audio",
@@ -8,7 +9,7 @@ const ELEMENT_TRACK_MAP: Record<ElementType, TrackType> = {
 	effect: "effect",
 	video: "video",
 	image: "video",
-	// Default only; the real rule depends on content (see getCompoundTrackType in timeline/compound).
+	// Default only; placement uses getTrackTypeForElement, which looks at the content.
 	compound: "video",
 };
 
@@ -18,6 +19,20 @@ export function getTrackTypeForElementType({
 	elementType: ElementType;
 }): TrackType {
 	return ELEMENT_TRACK_MAP[elementType];
+}
+
+/** Required track type of a concrete element; compound clips depend on their nested content. */
+export function getTrackTypeForElement({
+	element,
+	scenes,
+}: {
+	element: { type: ElementType; sceneId?: string };
+	scenes: TScene[];
+}): TrackType {
+	if (element.type === "compound" && element.sceneId) {
+		return getCompoundTrackType({ scenes, sceneId: element.sceneId });
+	}
+	return getTrackTypeForElementType({ elementType: element.type });
 }
 
 export function canElementGoOnTrack({
@@ -36,14 +51,13 @@ export function canElementGoOnTrack({
 export function validateElementTrackCompatibility({
 	element,
 	track,
+	scenes,
 }: {
-	element: { type: ElementType };
+	element: { type: ElementType; sceneId?: string };
 	track: { type: TrackType };
+	scenes: TScene[];
 }): { isValid: boolean; errorMessage?: string } {
-	const isValid = canElementGoOnTrack({
-		elementType: element.type,
-		trackType: track.type,
-	});
+	const isValid = getTrackTypeForElement({ element, scenes }) === track.type;
 
 	if (!isValid) {
 		return {

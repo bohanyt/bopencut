@@ -22,6 +22,7 @@ import {
 	UpdateBookmarkCommand,
 } from "@/commands/scene";
 import type { MediaTime } from "@/wasm";
+import { assertTracksAcyclic, syncCompoundDurations } from "@/timeline/compound";
 
 export class ScenesManager {
 	private active: TScene | null = null;
@@ -53,7 +54,10 @@ export class ScenesManager {
 			throw new Error("Scene not found");
 		}
 
-		const { canDelete, reason } = canDeleteScene({ scene: sceneToDelete });
+		const { canDelete, reason } = canDeleteScene({
+			scene: sceneToDelete,
+			scenes: this.list,
+		});
 		if (!canDelete) {
 			throw new Error(reason);
 		}
@@ -177,7 +181,7 @@ export class ScenesManager {
 		try {
 			const result = await storageService.loadProject({ id: projectId });
 			if (result?.project.scenes) {
-				const ensuredScenes = result.project.scenes ?? [];
+				const ensuredScenes = syncCompoundDurations(result.project.scenes ?? []);
 				const currentScene = findCurrentScene({
 					scenes: ensuredScenes,
 					currentSceneId: result.project.currentSceneId,
@@ -202,7 +206,7 @@ export class ScenesManager {
 		scenes: TScene[];
 		currentSceneId?: string;
 	}): void {
-		const ensuredScenes = ensureMainScene({ scenes });
+		const ensuredScenes = syncCompoundDurations(ensureMainScene({ scenes }));
 		const currentScene = currentSceneId
 			? ensuredScenes.find((s) => s.id === currentSceneId)
 			: null;
@@ -261,6 +265,12 @@ export class ScenesManager {
 		scenes: TScene[];
 		activeSceneId?: string;
 	}): void {
+		// Reject a cycle before anything changes; then keep compound durations in step.
+		for (const scene of scenes) {
+			if (this.list.includes(scene)) continue;
+			assertTracksAcyclic({ scenes, sceneId: scene.id, tracks: scene.tracks });
+		}
+		scenes = syncCompoundDurations(scenes);
 		this.list = scenes;
 		const nextActiveSceneId = activeSceneId ?? this.active?.id ?? null;
 		this.active = nextActiveSceneId
@@ -295,6 +305,9 @@ export class ScenesManager {
 
 	updateSceneTracks({ tracks }: { tracks: SceneTracks }): void {
 		if (!this.active) return;
+		const activeId = this.active.id;
+		// Every timeline edit lands here, so this is the boundary that keeps compound cycles out.
+		assertTracksAcyclic({ scenes: this.list, sceneId: activeId, tracks });
 
 		const updatedScene: TScene = {
 			...this.active,
@@ -302,10 +315,10 @@ export class ScenesManager {
 			updatedAt: new Date(),
 		};
 
-		this.list = this.list.map((s) =>
-			s.id === this.active?.id ? updatedScene : s,
+		this.list = syncCompoundDurations(
+			this.list.map((s) => (s.id === activeId ? updatedScene : s)),
 		);
-		this.active = updatedScene;
+		this.active = this.list.find((s) => s.id === activeId) ?? updatedScene;
 		this.notify();
 
 		const activeProject = this.editor.project.getActive();

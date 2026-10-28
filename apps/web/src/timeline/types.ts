@@ -28,10 +28,19 @@ export interface TScene {
 	isMain: boolean;
 	/** "compound" = content of a compound clip; hidden from the scene list. Unset = regular user scene. */
 	kind?: "compound";
+	/** Compound content only: where its tracks came from in the host, so ungroup can put them back. */
+	compoundOrigin?: CompoundOrigin;
 	tracks: SceneTracks;
 	bookmarks: Bookmark[];
 	createdAt: Date;
 	updatedAt: Date;
+}
+
+export interface CompoundOrigin {
+	/** Host track ids in display order (overlay top to bottom, main, audio) when the clip was created. */
+	hostTrackOrder: string[];
+	/** Nested track id → id of the host track its elements came from. */
+	trackSources: Record<string, string>;
 }
 
 export type TrackType = "video" | "text" | "audio" | "graphic" | "effect";

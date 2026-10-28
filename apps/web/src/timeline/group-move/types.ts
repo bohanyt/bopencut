@@ -5,6 +5,8 @@ export type GroupTrackSection = "overlay" | "main" | "audio";
 
 export interface GroupMember extends ElementRef {
 	elementType: ElementType;
+	/** Type of the track the element sits on now: the track type it needs (content-aware for compound clips). */
+	trackType: TrackType;
 	duration: MediaTime;
 	timeOffset: MediaTime;
 	trackSection: GroupTrackSection;

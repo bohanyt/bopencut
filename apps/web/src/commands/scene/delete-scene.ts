@@ -27,10 +27,12 @@ export class DeleteSceneCommand extends Command {
 			return;
 		}
 
-		const { canDelete, reason } = canDeleteScene({ scene: this.deletedScene });
+		const { canDelete, reason } = canDeleteScene({
+			scene: this.deletedScene,
+			scenes,
+		});
 		if (!canDelete) {
-			console.error("Cannot delete scene:", reason);
-			return;
+			throw new Error(reason ?? "Cannot delete scene");
 		}
 
 		const updatedScenes = scenes.filter((s) => s.id !== this.sceneId);
