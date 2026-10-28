@@ -563,8 +563,13 @@ describe("resolveTrackPlacement", () => {
 					id: "audio-1",
 					type: "audio",
 					elements: [
-						buildElement({ id: "a", type: "audio", startTime: 0, duration: 2 }),
-						buildElement({ id: "b", type: "audio", startTime: 5, duration: 2 }),
+						buildElement({ id: "a", type: "audio", startTime: 0, duration: 4 }),
+						buildElement({
+							id: "b",
+							type: "audio",
+							startTime: 10,
+							duration: 4,
+						}),
 					],
 				}),
 			],
@@ -575,8 +580,8 @@ describe("resolveTrackPlacement", () => {
 				tracks,
 				elementType: "audio",
 				timeSpans: [
-					buildTimeSpan({ startTime: 2.5, duration: 1 }),
-					buildTimeSpan({ startTime: 5.5, duration: 1 }),
+					buildTimeSpan({ startTime: 5, duration: 2 }),
+					buildTimeSpan({ startTime: 11, duration: 2 }),
 				],
 				strategy: { type: "firstAvailable" },
 			}),
@@ -648,7 +653,7 @@ describe("resolveTrackPlacement", () => {
 			trackId: "video-main",
 			trackIndex: 0,
 			trackType: "video",
-			adjustedStartTime: 0,
+			adjustedStartTime: ZERO_MEDIA_TIME,
 		});
 	});
 

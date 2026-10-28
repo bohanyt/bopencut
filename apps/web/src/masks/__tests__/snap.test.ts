@@ -346,7 +346,8 @@ describe("mask snapping", () => {
 		// bounds.width=200 → localCanvasSize.width/2=100 is the right snap target.
 		// width=0.4, scale=1 → aabbHalfW = (0.4*200)/2 * 1 = 40.
 		// At scale=2.48 → rightEdge=0+40*2.48=99.2; |99.2-100|=0.8 < threshold(8)
-		// → snaps to scale=1*(100/40)=2.5; line at position 100.
+		// → snaps to scale=1*(100/40)=2.5. Skala seragam dari pusat: tepi kiri ikut
+		// menempel di -100, jadi kedua garis tampil.
 		const result = snapBoxMaskInteraction({
 			handleId: { kind: "scale" },
 			startParams: buildRectangleParams({ scale: 1 }),
@@ -357,7 +358,13 @@ describe("mask snapping", () => {
 		});
 
 		expect(result.params.scale).toBe(2.5);
-		expect(result.activeLines).toEqual([{ type: "vertical", position: 100 }]);
+		expect(result.activeLines).toEqual(
+			expect.arrayContaining([
+				{ type: "vertical", position: -100 },
+				{ type: "vertical", position: 100 },
+			]),
+		);
+		expect(result.activeLines).toHaveLength(2);
 	});
 
 	test("snaps text mask movement using intrinsic text bounds", () => {
@@ -365,14 +372,41 @@ describe("mask snapping", () => {
 			centerX: 0.03,
 			centerY: -0.04,
 		});
-		const result = textMaskDefinition.interaction.snap?.({
-			handleId: { kind: "position" },
-			startParams: params,
-			proposedParams: params,
-			bounds,
-			canvasSize,
-			snapThreshold,
+		const originalCanvas = globalThis.OffscreenCanvas;
+		const context = {
+			save() {},
+			restore() {},
+			measureText(text: string) {
+				return { width: text.length * 8 };
+			},
+		};
+		Object.defineProperty(globalThis, "OffscreenCanvas", {
+			configurable: true,
+			value: class {
+				getContext() {
+					return context;
+				}
+			},
 		});
+		let result: ReturnType<
+			NonNullable<typeof textMaskDefinition.interaction.snap>
+		> | undefined;
+		try {
+			result = textMaskDefinition.interaction.snap?.({
+				handleId: { kind: "position" },
+				startParams: params,
+				proposedParams: params,
+				bounds,
+				canvasSize,
+				snapThreshold,
+			});
+		} finally {
+			Object.defineProperty(globalThis, "OffscreenCanvas", {
+				configurable: true,
+				writable: true,
+				value: originalCanvas,
+			});
+		}
 
 		expect(result?.params.centerX).toBe(0);
 		expect(result?.params.centerY).toBe(0);
@@ -499,9 +533,11 @@ describe("custom mask point insertion", () => {
 			id: "new",
 			x: 0,
 			y: -0.1,
-			inX: 0,
+			// Disisipkan dengan de Casteljau supaya bentuk kurva tetap; handle titik
+			// baru mengikuti arah segmen.
+			inX: -0.1,
 			inY: 0,
-			outX: 0,
+			outX: 0.1,
 			outY: 0,
 		});
 	});

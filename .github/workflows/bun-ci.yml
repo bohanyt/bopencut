@@ -56,4 +56,3 @@ jobs:
       - name: Run tests
         working-directory: apps/web
         run: bun test
-        continue-on-error: true
