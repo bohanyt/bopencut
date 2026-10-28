@@ -13,7 +13,7 @@ const run = promisify(execFile);
 const WORKSPACE = path.resolve(process.env.AGENT_WORKSPACE ?? path.join(process.cwd(), "..", "..", "workspace"));
 const FILES_ROOT = path.resolve(process.env.AGENT_FILES_ROOT ?? WORKSPACE);
 const TYPES: Record<string, string> = { ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".json": "application/json" };
-const json = (data: Buffer | string) => new Response(data, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+const json = (data: Buffer | string) => new Response(typeof data === "string" ? data : new Uint8Array(data), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 function inside(rel: string) {
 	const full = path.resolve(FILES_ROOT, rel);
@@ -33,7 +33,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
 		if (slug[0] === "bundle") return json(await fs.readFile(path.join(WORKSPACE, "bundle", "bundle.json")));
 		if (slug[0] === "file") {
 			const full = inside(new URL(req.url).searchParams.get("p") ?? "");
-			return new Response(await fs.readFile(full), { headers: { "Content-Type": TYPES[path.extname(full).toLowerCase()] ?? "application/octet-stream", "Cache-Control": "no-store" } });
+			return new Response(new Uint8Array(await fs.readFile(full)), { headers: { "Content-Type": TYPES[path.extname(full).toLowerCase()] ?? "application/octet-stream", "Cache-Control": "no-store" } });
 		}
 		if (slug[0] === "draft") {
 			try { return json(await fs.readFile(path.join(WORKSPACE, "draft.json"))); } catch { return Response.json(null); }
@@ -66,7 +66,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 		try {
 			await fs.writeFile(path.join(dir, "in.gif"), Buffer.from(await req.arrayBuffer()));
 			await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "2", "-i", path.join(dir, "in.gif"), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-movflags", "+faststart", path.join(dir, "out.mp4")]);
-			return new Response(await fs.readFile(path.join(dir, "out.mp4")), { headers: { "Content-Type": "video/mp4" } });
+			return new Response(new Uint8Array(await fs.readFile(path.join(dir, "out.mp4"))), { headers: { "Content-Type": "video/mp4" } });
 		} finally {
 			await fs.rm(dir, { recursive: true, force: true });
 		}

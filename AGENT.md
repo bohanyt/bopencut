@@ -25,7 +25,7 @@ Satu folder kerja per pekerjaan; ganti env lalu restart server untuk pindah proy
 
 **bundle.json** (`schema` bebas): `name,width,height`, `assets:[{key,path(relatif AGENT_FILES_ROOT),type:image|video|audio,name}]`, `main:[el]`, `audio:[el]`, `overlay:[{name,type:"video"|"effect",elements:[el]}]` (index 0 = paling atas). `el`: `agent_id,name,start,duration,trimStart` (detik), `asset` atau `effect`+`effectParams`, `params` (mis. `transform.positionX/Y` = piksel dari pusat kanvas, `opacity`, `volume`), `size:[w,h]` (ukuran tampil piksel), `keyframes:[{path:"opacity"|"scale"|param,time,value}]`.
 
-**draft.json**: `{schema:"opencut-agent-draft-1", rev, label, projectId?, ops:[{op:"set", match:{agentId}|{id}, start?, duration?, trimStart?, params?}, {op:"delete", match:…}]}`.
+**draft.json**: `{schema:"opencut-agent-draft-1", rev, label, projectId?, ops:[{op:"set", match:{agentId}|{id}, start?, duration?, trimStart?, params?}, {op:"delete", match:…}, {op:"add", track:{name, type?:"video"|"audio"|"effect", index?}, element:el}]}`. Pada `add`, `el.asset` berupa objek `{path,type,name}` (bukan key bundle); trek dengan nama itu dipakai kalau sudah ada, kalau belum dibuat (overlay disisipkan di `index`). Seluruh draf = satu Undo; item yang diubah/ditambah langsung terpilih.
 
 Konsol browser: `window.agent.snapshot()`, `window.agent.applyDraft(draft)`.
 
