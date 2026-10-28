@@ -44,6 +44,8 @@ export class MediaManager {
 				toast.error("Not enough browser storage", {
 					description: error instanceof Error ? error.message : undefined,
 				});
+			} else {
+				toast.error("Media gagal disimpan", { description: error instanceof Error ? error.message : undefined });
 			}
 
 			return null;

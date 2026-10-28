@@ -7,6 +7,8 @@
 - **AI menyiapkan draf:** AI menyusun proyek utuh (aset + trek + elemen), kamu membukanya di `/agent` lalu lanjut mengedit.
 - **Lokal:** jalan di laptopmu, tanpa akun. Satu folder kerja per proyek (`AGENT_WORKSPACE`).
 
+Proyek dan media disimpan di `<repo>/workspace/projects/` dan bisa dibuka dari browser lain pada laptop yang sama. Data browser lama disalin otomatis tanpa menghapus aslinya. Atur `BOPENCUT_DATA` di `apps/web/.env.local` untuk memilih folder lain, lalu restart server. Folder `workspace/` tidak masuk Git; pastikan folder pilihan lain juga tidak dikomit.
+
 Tujuan dan tahapan: [GOAL.md](GOAL.md). Detail format dan cara pakai: [AGENT.md](AGENT.md).
 
 > bopencut adalah fork dari **OpenCut (classic)** buatan tim [OpenCut](https://github.com/opencut-app/opencut), lisensi MIT (lihat `LICENSE`). Editor dasarnya sepenuhnya karya mereka; fork ini menambahkan ruang kerja bersama AI, GIF bergerak, dan perbaikan preview trek efek. README asli OpenCut ada di bawah.

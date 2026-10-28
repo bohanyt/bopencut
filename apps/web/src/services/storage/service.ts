@@ -3,13 +3,11 @@ import { getProjectDurationFromScenes } from "@/timeline/scenes";
 import type { MediaAsset } from "@/media/types";
 import { IndexedDBAdapter } from "./indexeddb-adapter";
 import { OPFSAdapter } from "./opfs-adapter";
-import {
-	type StorageCapacityCheckResult,
-	StorageQuotaExceededError,
-	evaluateStorageCapacity,
-	isStorageQuotaExceededError,
-	readStorageQuotaStatus,
-} from "./quota";
+import { DiskAdapter, DiskSoundsAdapter } from "./disk-adapter";
+import { toast } from "sonner";
+import { getProjectId } from "./migrations/transformers/utils";
+import type { ProjectRecord } from "./migrations/transformers/types";
+import { type StorageCapacityCheckResult, isStorageQuotaExceededError } from "./quota";
 import type {
 	MediaAssetData,
 	StorageConfig,
@@ -17,10 +15,7 @@ import type {
 	SerializedScene,
 } from "./types";
 import type { SavedSoundsData, SavedSound, SoundEffect } from "@/sounds/types";
-import {
-	migrations,
-	runStorageMigrations,
-} from "@/services/storage/migrations";
+import { migrations } from "@/services/storage/migrations";
 import type { Bookmark, SceneTracks, TScene } from "@/timeline";
 import { roundMediaTime } from "@/wasm";
 
@@ -58,8 +53,8 @@ function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 }
 
 class StorageService {
-	private projectsAdapter: IndexedDBAdapter<SerializedProject>;
-	private savedSoundsAdapter: IndexedDBAdapter<SavedSoundsData>;
+	private projectsAdapter = new DiskAdapter();
+	private savedSoundsAdapter = new DiskSoundsAdapter<SavedSoundsData>();
 	private config: StorageConfig;
 	private migrationsPromise: Promise<void> | null = null;
 
@@ -70,30 +65,72 @@ class StorageService {
 			savedSoundsDb: "video-editor-saved-sounds",
 			version: 1,
 		};
-
-		this.projectsAdapter = new IndexedDBAdapter<SerializedProject>({
-			dbName: this.config.projectsDb,
-			storeName: "projects",
-			version: this.config.version,
-		});
-
-		this.savedSoundsAdapter = new IndexedDBAdapter<SavedSoundsData>({
-			dbName: this.config.savedSoundsDb,
-			storeName: "saved-sounds",
-			version: this.config.version,
-		});
 	}
 
-	private async ensureMigrations(): Promise<void> {
-		if (this.migrationsPromise) {
-			await this.migrationsPromise;
-			return;
-		}
-
-		this.migrationsPromise = runStorageMigrations({ migrations }).then(
-			() => undefined,
-		);
+	async ensureMigrations(): Promise<void> {
+		if (!this.migrationsPromise) this.migrationsPromise = (async () => {
+			await this.migrateBrowserProjects();
+			await this.migrateDiskProjects();
+		})();
 		await this.migrationsPromise;
+	}
+
+	private async migrateBrowserProjects(): Promise<void> {
+		if (typeof indexedDB === "undefined") return;
+		const legacy = new IndexedDBAdapter<ProjectRecord>({ dbName: this.config.projectsDb, storeName: "projects", version: 1 });
+		let copied = 0, failed = 0;
+		try {
+			for (const source of await legacy.getAll()) {
+				const id = getProjectId({ project: source });
+				if (!id) { failed++; continue; }
+				try {
+					if (await this.projectsAdapter.migrationExists(id)) continue;
+					let project = source;
+					let version = typeof project.version === "number" ? project.version : (Array.isArray(project.scenes) && project.scenes.length ? 1 : 0);
+					for (const migration of migrations) {
+						if (migration.from !== version) continue;
+						const result = await migration.run({ projectId: id, project });
+						if (result.skipped) throw new Error(result.reason ?? "Migrasi versi gagal");
+						project = result.project;
+						version = migration.to;
+					}
+					const { mediaMetadataAdapter, mediaAssetsAdapter } = this.getProjectMediaAdapters({ projectId: id });
+					for (const metadata of await mediaMetadataAdapter.getAll()) {
+						const file = await mediaAssetsAdapter.get(metadata.id);
+						if (!file) throw new Error(`Media ${metadata.id} tidak ditemukan`);
+						await this.projectsAdapter.saveMedia(id, { ...metadata, fileName: metadata.fileName ?? file.name, fileType: metadata.fileType ?? file.type }, file);
+					}
+					if (await this.projectsAdapter.migrate(project as unknown as SerializedProject)) copied++;
+				} catch (error) { failed++; console.error("Migrasi proyek gagal:", id, error); }
+			}
+		} catch (error) { failed++; console.error("Migrasi browser gagal:", error); }
+		try {
+			const sounds = new IndexedDBAdapter<SavedSoundsData>({ dbName: this.config.savedSoundsDb, storeName: "saved-sounds", version: 1 });
+			const data = await sounds.get("user-sounds");
+			if (data && !(await this.savedSoundsAdapter.get("user-sounds"))) await this.savedSoundsAdapter.migrate(data);
+		} catch (error) { console.error("Migrasi suara gagal:", error); toast.error("Suara tersimpan gagal disalin; data browser tetap ada."); }
+
+		if (copied) toast.success(`${copied} proyek browser disalin ke folder penyimpanan.`);
+		if (failed) toast.error(`${failed} proyek browser gagal disalin; data browser tetap ada. Muat ulang untuk mencoba lagi.`);
+	}
+
+	private async migrateDiskProjects(): Promise<void> {
+		for (const entry of await this.projectsAdapter.getAll()) {
+			const id = entry?.metadata?.id;
+			if (!id || typeof entry.version !== "number" || entry.version >= (migrations.at(-1)?.to ?? entry.version)) continue;
+			const source = await this.projectsAdapter.get(id);
+			if (!source || typeof source.version !== "number") continue;
+			let project = source as unknown as ProjectRecord;
+			let version = source.version;
+			for (const migration of migrations) {
+				if (migration.from !== version) continue;
+				const result = await migration.run({ projectId: id, project });
+				if (result.skipped) throw new Error(`Migrasi proyek ${id}: ${result.reason ?? "gagal"}`);
+				project = result.project;
+				version = migration.to;
+			}
+			if (version !== source.version) await this.projectsAdapter.set({ key: id, value: project as unknown as SerializedProject });
+		}
 	}
 
 	private getProjectMediaAdapters({ projectId }: { projectId: string }) {
@@ -113,11 +150,7 @@ class StorageService {
 	}: {
 		size: number;
 	}): Promise<StorageCapacityCheckResult> {
-		const quotaStatus = await readStorageQuotaStatus();
-		return evaluateStorageCapacity({
-			requiredBytes: size,
-			quotaStatus,
-		});
+		return { canStore: true, reason: "estimate-unavailable", availableBytes: null };
 	}
 
 	isQuotaExceededError({ error }: { error: unknown }): boolean {
@@ -297,8 +330,6 @@ class StorageService {
 		projectId: string;
 		mediaAsset: MediaAsset;
 	}): Promise<void> {
-		const { mediaMetadataAdapter, mediaAssetsAdapter } =
-			this.getProjectMediaAdapters({ projectId });
 
 		const metadata: MediaAssetData = {
 			id: mediaAsset.id,
@@ -311,34 +342,13 @@ class StorageService {
 			width: mediaAsset.width,
 			height: mediaAsset.height,
 			duration: mediaAsset.duration,
+			fps: mediaAsset.fps,
+			hasAudio: mediaAsset.hasAudio,
 			thumbnailUrl: mediaAsset.thumbnailUrl,
 			ephemeral: mediaAsset.ephemeral,
 		};
 
-		try {
-			await mediaAssetsAdapter.set({
-				key: mediaAsset.id,
-				value: mediaAsset.file,
-			});
-			await mediaMetadataAdapter.set({
-				key: mediaAsset.id,
-				value: metadata,
-			});
-		} catch (error) {
-			try {
-				await mediaAssetsAdapter.remove(mediaAsset.id);
-			} catch {
-				// Ignore cleanup failures so the original storage error is preserved.
-			}
-
-			if (this.isQuotaExceededError({ error })) {
-				throw new StorageQuotaExceededError({
-					requiredBytes: mediaAsset.file.size,
-				});
-			}
-
-			throw error;
-		}
+		await this.projectsAdapter.saveMedia(projectId, metadata, mediaAsset.file);
 	}
 
 	async loadMediaAsset({
@@ -348,35 +358,13 @@ class StorageService {
 		projectId: string;
 		id: string;
 	}): Promise<MediaAsset | null> {
-		const { mediaMetadataAdapter, mediaAssetsAdapter } =
-			this.getProjectMediaAdapters({ projectId });
-
-		const [storedFile, metadata] = await Promise.all([
-			mediaAssetsAdapter.get(id),
-			mediaMetadataAdapter.get(id),
-		]);
-
-		if (!storedFile || !metadata) return null;
-		const file = metadata.fileName
-			? new File([storedFile], metadata.fileName, { type: metadata.fileType ?? "", lastModified: metadata.lastModified })
-			: storedFile;
-
-		let url: string;
-		if (metadata.type === "image" && (!file.type || file.type === "")) {
-			try {
-				const text = await file.text();
-				if (text.trim().startsWith("<svg")) {
-					const svgBlob = new Blob([text], { type: "image/svg+xml" });
-					url = URL.createObjectURL(svgBlob);
-				} else {
-					url = URL.createObjectURL(file);
-				}
-			} catch {
-				url = URL.createObjectURL(file);
-			}
-		} else {
-			url = URL.createObjectURL(file);
-		}
+		const metadata = (await this.projectsAdapter.mediaList(projectId)).find((item) => item.id === id);
+		if (!metadata) return null;
+		const url = this.projectsAdapter.mediaUrl(projectId, id);
+		const response = await fetch(url);
+		if (!response.ok) throw new Error(`Media ${id} tidak dapat dibaca`);
+		const blob = await response.blob();
+		const file = new File([blob], metadata.fileName ?? metadata.name, { type: metadata.fileType ?? blob.type, lastModified: metadata.lastModified });
 
 		return {
 			id: metadata.id,
@@ -387,6 +375,8 @@ class StorageService {
 			width: metadata.width,
 			height: metadata.height,
 			duration: metadata.duration,
+			fps: metadata.fps,
+			hasAudio: metadata.hasAudio,
 			thumbnailUrl: metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
 		};
@@ -397,11 +387,7 @@ class StorageService {
 	}: {
 		projectId: string;
 	}): Promise<MediaAsset[]> {
-		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
-			projectId,
-		});
-
-		const mediaIds = await mediaMetadataAdapter.list();
+		const mediaIds = (await this.projectsAdapter.mediaList(projectId)).map((item) => item.id);
 		const mediaItems: MediaAsset[] = [];
 
 		for (const id of mediaIds) {
@@ -421,13 +407,7 @@ class StorageService {
 		projectId: string;
 		id: string;
 	}): Promise<void> {
-		const { mediaMetadataAdapter, mediaAssetsAdapter } =
-			this.getProjectMediaAdapters({ projectId });
-
-		await Promise.all([
-			mediaAssetsAdapter.remove(id),
-			mediaMetadataAdapter.remove(id),
-		]);
+		await this.projectsAdapter.removeMedia(projectId, id);
 	}
 
 	async deleteProjectMedia({
@@ -435,13 +415,7 @@ class StorageService {
 	}: {
 		projectId: string;
 	}): Promise<void> {
-		const { mediaMetadataAdapter, mediaAssetsAdapter } =
-			this.getProjectMediaAdapters({ projectId });
-
-		await Promise.all([
-			mediaMetadataAdapter.clear(),
-			mediaAssetsAdapter.clear(),
-		]);
+		await this.projectsAdapter.removeProjectMedia(projectId);
 	}
 
 	async clearAllData(): Promise<void> {
@@ -466,11 +440,7 @@ class StorageService {
 	async getProjectStorageInfo({ projectId }: { projectId: string }): Promise<{
 		mediaItems: number;
 	}> {
-		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
-			projectId,
-		});
-
-		const mediaIds = await mediaMetadataAdapter.list();
+		const mediaIds = await this.projectsAdapter.mediaList(projectId);
 
 		return {
 			mediaItems: mediaIds.length,
@@ -578,7 +548,7 @@ class StorageService {
 	}
 
 	isFullySupported(): boolean {
-		return this.isIndexedDBSupported() && this.isOPFSSupported();
+		return typeof fetch !== "undefined";
 	}
 }
 
