@@ -6,7 +6,7 @@ const projectUrl = (id: string) => `${base}/${encodeURIComponent(id)}`;
 async function checked(response: Response): Promise<Response> {
 	if (!response.ok)
 		throw new Error(
-			`Penyimpanan gagal (${response.status}): ${await response.text()}`,
+			`Storage failed (${response.status}): ${await response.text()}`,
 		);
 	return response;
 }
@@ -66,7 +66,7 @@ export class DiskAdapter {
 		let response = await write(expected);
 		if (response.status === 409) {
 			toast.warning(
-				"Proyek juga diubah di browser lain; penyimpanan terbaru akan menimpa perubahan tersebut.",
+				"The project was also changed in another browser; the latest save will overwrite those changes.",
 			);
 			for (let attempt = 0; attempt < 3 && response.status === 409; attempt++) {
 				await this.get(key);

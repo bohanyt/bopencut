@@ -16,7 +16,7 @@ on:
 
 jobs:
   build:
-    # Satu OS cukup; matriks 3 OS memboroskan menit kalau repo jadi private (macOS dihitung 10x).
+    # One OS is enough; a three-OS matrix wastes minutes if the repository becomes private (macOS counts 10x).
     runs-on: ubuntu-latest
 
     env:
@@ -36,16 +36,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Repo publik: tolak atribusi AI dan path pribadi di file maupun pesan commit PR.
-      - name: Cek kebersihan repo publik
+      # Public repository: reject AI attribution and private paths in files and PR commit messages.
+      - name: Check public repository hygiene
         run: |
           pola='co-authored-by|claude|anthropic|[A-Za-z]:[\/]Users[\/]'
           if git grep -nIiE "$pola" -- . ':!bun.lock' ':!.github/workflows'; then
-            echo "::error::Ada atribusi AI atau path pribadi di file repo"; exit 1
+            echo "::error::AI attribution or private path found in repository files"; exit 1
           fi
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             if git log --format=%B "origin/${{ github.base_ref }}..HEAD" | grep -iE "$pola"; then
-              echo "::error::Ada atribusi AI atau path pribadi di pesan commit"; exit 1
+              echo "::error::AI attribution or private path found in commit messages"; exit 1
             fi
           fi
 

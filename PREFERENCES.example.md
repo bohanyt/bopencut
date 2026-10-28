@@ -1,10 +1,10 @@
-# Contoh catatan selera
+# Example preferences
 
-Contoh berikut dibuat-buat dan bukan aturan proyek.
+The following examples are fictional and are not project rules.
 
-- **Aturan:** Naikkan caption sekitar 30 px.
-  **Bukti:** 4 edit di 2 proyek. **Tanggal:** 2026-01-01.
-- **Aturan:** Pendekkan klip sisipan sekitar 0,3 detik.
-  **Bukti:** 3 edit di 1 proyek. **Tanggal:** 2026-01-01.
+- **Rule:** Raise captions by about 30 px.
+  **Evidence:** 4 edits in 2 projects. **Date:** 2026-01-01.
+- **Rule:** Shorten insert clips by about 0.3 seconds.
+  **Evidence:** 3 edits in 1 project. **Date:** 2026-01-01.
 
-Manusia boleh mengubah atau menghapus aturan.
+The human may edit or delete rules.

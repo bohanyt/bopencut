@@ -90,28 +90,28 @@ class StorageService {
 					for (const migration of migrations) {
 						if (migration.from !== version) continue;
 						const result = await migration.run({ projectId: id, project });
-						if (result.skipped) throw new Error(result.reason ?? "Migrasi versi gagal");
+						if (result.skipped) throw new Error(result.reason ?? "Version migration failed");
 						project = result.project;
 						version = migration.to;
 					}
 					const { mediaMetadataAdapter, mediaAssetsAdapter } = this.getProjectMediaAdapters({ projectId: id });
 					for (const metadata of await mediaMetadataAdapter.getAll()) {
 						const file = await mediaAssetsAdapter.get(metadata.id);
-						if (!file) throw new Error(`Media ${metadata.id} tidak ditemukan`);
+						if (!file) throw new Error(`Media ${metadata.id} not found`);
 						await this.projectsAdapter.saveMedia(id, { ...metadata, fileName: metadata.fileName ?? file.name, fileType: metadata.fileType ?? file.type }, file);
 					}
 					if (await this.projectsAdapter.migrate(project as unknown as SerializedProject)) copied++;
-				} catch (error) { failed++; console.error("Migrasi proyek gagal:", id, error); }
+				} catch (error) { failed++; console.error("Project migration failed:", id, error); }
 			}
-		} catch (error) { failed++; console.error("Migrasi browser gagal:", error); }
+		} catch (error) { failed++; console.error("Browser migration failed:", error); }
 		try {
 			const sounds = new IndexedDBAdapter<SavedSoundsData>({ dbName: this.config.savedSoundsDb, storeName: "saved-sounds", version: 1 });
 			const data = await sounds.get("user-sounds");
 			if (data && !(await this.savedSoundsAdapter.get("user-sounds"))) await this.savedSoundsAdapter.migrate(data);
-		} catch (error) { console.error("Migrasi suara gagal:", error); toast.error("Suara tersimpan gagal disalin; data browser tetap ada."); }
+		} catch (error) { console.error("Sound migration failed:", error); toast.error("Failed to copy saved sounds; browser data remains."); }
 
-		if (copied) toast.success(`${copied} proyek browser disalin ke folder penyimpanan.`);
-		if (failed) toast.error(`${failed} proyek browser gagal disalin; data browser tetap ada. Muat ulang untuk mencoba lagi.`);
+		if (copied) toast.success(`${copied} browser projects copied to storage.`);
+		if (failed) toast.error(`${failed} browser projects failed to copy; browser data remains. Reload to retry.`);
 	}
 
 	private async migrateDiskProjects(): Promise<void> {
@@ -125,7 +125,7 @@ class StorageService {
 			for (const migration of migrations) {
 				if (migration.from !== version) continue;
 				const result = await migration.run({ projectId: id, project });
-				if (result.skipped) throw new Error(`Migrasi proyek ${id}: ${result.reason ?? "gagal"}`);
+				if (result.skipped) throw new Error(`Project migration ${id}: ${result.reason ?? "failed"}`);
 				project = result.project;
 				version = migration.to;
 			}
@@ -362,7 +362,7 @@ class StorageService {
 		if (!metadata) return null;
 		const url = this.projectsAdapter.mediaUrl(projectId, id);
 		const response = await fetch(url);
-		if (!response.ok) throw new Error(`Media ${id} tidak dapat dibaca`);
+		if (!response.ok) throw new Error(`Media ${id} cannot be read`);
 		const blob = await response.blob();
 		const file = new File([blob], metadata.fileName ?? metadata.name, { type: metadata.fileType ?? blob.type, lastModified: metadata.lastModified });
 

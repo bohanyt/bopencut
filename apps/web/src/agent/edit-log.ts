@@ -1,4 +1,4 @@
-// Diff snapshot yang sudah selesai, bukan setiap frame drag.
+// Diff completed snapshots, not every drag frame.
 export type EditItem = { id: string; agentId: string | null; name: string; media: string | null; type: string; track: string; startTime: number; duration: number; trimStart: number; trimEnd: number; params: Record<string, unknown>; animations: Record<string, unknown> };
 export type EditSnapshot = { projectId: string; items: EditItem[] };
 export type EditLine = { t: string; projectId: string; actor: "user"; kind: "set" | "delete" | "add"; agentId: string | null; elementId: string; name: string; track: string; elementType: string; field: string; from: unknown; to: unknown };

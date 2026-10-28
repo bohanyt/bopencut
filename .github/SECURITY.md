@@ -1,7 +1,7 @@
-# Keamanan
+# Security
 
-bopencut dirancang untuk dijalankan **lokal** (127.0.0.1). API lokalnya (`/api/agent`, `/api/storage`) hanya menerima permintaan dari localhost dan tidak dimaksudkan untuk dibuka ke internet.
+bopencut is designed to run **locally** (127.0.0.1). Its local APIs (`/api/agent`, `/api/storage`) accept requests only from localhost and are not intended to be exposed to the internet.
 
-Kalau menemukan celah keamanan di bopencut, laporkan secara privat lewat **Security → Report a vulnerability** di [bohanyt/bopencut](https://github.com/bohanyt/bopencut/security). Jangan membuka issue publik untuk celah keamanan.
+If you find a security vulnerability in bopencut, report it privately via **Security → Report a vulnerability** at [bohanyt/bopencut](https://github.com/bohanyt/bopencut/security). Do not open a public issue for a vulnerability.
 
-Celah pada editor dasar yang juga ada di OpenCut sebaiknya dilaporkan juga ke [proyek OpenCut](https://github.com/opencut-app/opencut).
+Vulnerabilities in the base editor that also affect OpenCut should also be reported to the [OpenCut project](https://github.com/opencut-app/opencut).

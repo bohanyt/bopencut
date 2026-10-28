@@ -193,7 +193,7 @@ export class ProjectManager {
 			this.updateMetadata(updatedProject);
 		} catch (error) {
 			console.error("Failed to save project:", error);
-			toast.error("Proyek gagal disimpan", { description: error instanceof Error ? error.message : undefined });
+			toast.error("Failed to save project", { description: error instanceof Error ? error.message : undefined });
 		}
 	}
 

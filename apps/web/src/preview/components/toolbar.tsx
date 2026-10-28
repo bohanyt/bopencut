@@ -103,7 +103,7 @@ function TimecodeDisplay() {
 function QualitySelect() {
 	const quality = usePreviewStore((state) => state.quality);
 	const setQuality = usePreviewStore((state) => state.setQuality);
-	const labels = { full: "Penuh", half: "\u00bd", quarter: "\u00bc" };
+	const labels = { full: "Full", half: "\u00bd", quarter: "\u00bc" };
 	return (
 		<Select
 			value={quality}
@@ -115,7 +115,7 @@ function QualitySelect() {
 				{labels[quality]}
 			</SelectTrigger>
 			<SelectContent>
-				<SelectItem value="full">Penuh</SelectItem>
+				<SelectItem value="full">Full</SelectItem>
 				<SelectItem value="half">{"\u00bd"}</SelectItem>
 				<SelectItem value="quarter">{"\u00bc"}</SelectItem>
 			</SelectContent>

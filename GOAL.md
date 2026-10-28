@@ -1,56 +1,58 @@
-# Tujuan bopencut
+# bopencut goal
 
-**Dari skrip ke video jadi, dengan AI mengerjakan sebagian besar dan manusia memegang kendali penuh, di satu timeline yang sama.**
+**From script to finished video, with AI doing most of the work and a human in full control, on one shared timeline.**
 
-## Alur kerja
+## Workflow
 
 ```
-  skrip ─▶ 1. AI menyusun draf ─▶ 2. manusia mengedit ─▶ 3. AI merapikan ─▶ export
-              ▲                         ▲     │                │
-              │                         │     │                │
-              │                         └─────┼────────────────┘  (ulang sampai jadi)
-              │                               ▼
-              └──── dibaca di draf berikutnya ── 4. AI mencatat selera
+  script → 1. AI drafts → 2. human edits → 3. AI refines → export
+             ↑                 ↑              |             |
+             |                 └──────────────┴─────────────┘ (repeat until done)
+             |                                ↓
+             └──── read in the next draft ── 4. AI records preferences
 ```
 
-1. **AI menyusun draf awal seluruh video dari skrip.** Target: sekitar 75% jadi, termasuk VO, caption, footage, motion graphic, dan transisi. Semuanya berupa elemen yang bisa diedit, bukan video yang terkunci.
-2. **Manusia mengedit langsung.** Menggeser, memotong, dan me-resize di timeline dan preview; menambah PNG, GIF, atau footage sendiri.
-3. **Manusia menyuruh AI merapikan bagian tertentu.** Contohnya "transisi di sini kurang" atau "mograph ini kosong". AI melihat keadaan terkini, termasuk editan manusia, lalu mengubah hanya bagian itu. Hasilnya bisa di-Undo dengan satu langkah dan tidak menimpa editan manusia.
-4. **AI belajar dari editan manusia.** Setiap editan manusia pada item buatan AI dicatat (apa yang diubah, dari berapa ke berapa). AI meringkasnya jadi aturan selera, misalnya "caption selalu dinaikkan ±40 px" atau "potongan meme dipendekkan ±0,4 s". Aturan baru ditulis kalau pola yang sama muncul **minimal 3 kali**, lengkap dengan buktinya. Manusia boleh mengubah atau menghapus aturan itu. Sebelum menyusun draf berikutnya, AI wajib membacanya, supaya editan yang sama tidak perlu diulang.
+1. **AI drafts the entire video from a script.** Aim for about 75% complete, including voice-over, captions, footage, motion graphics, and transitions. Everything is an editable element, not a locked video.
+2. **The human edits directly.** Move, trim, and resize on the timeline and in the preview; add their own PNGs, GIFs, or footage.
+3. **The human asks AI to refine specific parts.** For example, "this transition is lacking" or "this motion graphic is empty". AI reads the current state, including human edits, and changes only that part. The result can be undone in one step and does not overwrite human edits.
+4. **AI learns from human edits.** Every human edit to an AI-created item is logged (what changed and its previous and new values). AI summarizes these as preference rules, such as "always raise captions by about 40 px" or "shorten meme clips by about 0.4 s". A new rule is written only when the same pattern appears **at least 3 times**, with evidence. The human may edit or delete it. AI must read these rules before the next draft so the same edits need not be repeated.
 
-Catatan selera ada dua tingkat:
-- **Umum**, berlaku untuk semua proyek: `PREFERENCES.md` di folder yang ditunjuk `AGENT_PREFS`.
-- **Per proyek/channel:** `PREFERENCES.md` di `AGENT_WORKSPACE`.
+Preferences have two levels:
+- **General**, for all projects: `PREFERENCES.md` in the folder specified by `AGENT_PREFS`.
+- **Per project/channel:** `PREFERENCES.md` in `AGENT_WORKSPACE`.
 
-Isinya pribadi, jadi tidak disimpan di repo publik ini. Repo hanya berisi mekanismenya.
+These are private and are not stored in this public repository. The repository contains only the mechanism.
 
-## Penyaring fitur
+## Feature filter
 
-Fitur baru hanya dikerjakan kalau membuat salah satu langkah di atas **lebih cepat atau lebih baik**. Kalau tidak jelas langkah mana yang terbantu, fitur itu ditunda.
+New features are implemented only if they make one of the steps above **faster or better**. If it is unclear which step benefits, the feature is deferred.
 
-- Hal khusus satu proyek (adegan tertentu, gaya channel tertentu) tidak masuk repo ini. bopencut hanya berisi kemampuan umum: primitif, preset, dan jalur agen.
-- Uji pakai adegan nyata boleh, tapi adegan itu bahan uji, bukan fitur.
+- Project-specific details (a particular scene or channel style) do not belong in this repository. bopencut contains only general capabilities: primitives, presets, and agent workflows.
+- Real scenes may be used for testing, but they are test material, not features.
 
-## Tahapan
+## Stages
 
-Setiap tahap dianggap selesai kalau **kriteria "selesai kalau"** terpenuhi dan dicoba langsung di editor.
+A stage is complete when its **Done when** criteria are met and tested directly in the editor.
 
-| # | Tahap | Langkah yang terbantu | Selesai kalau |
-|---|---|---|---|
-| ? | **Penyimpanan di folder** | 1, 2, 3, 4 | ? Proyek dan media tersimpan di folder lokal, terbuka di browser lain, dan proyek browser lama tersalin dengan aman |
-| 0 | Jembatan agen: impor draf, sinkron timeline, draf set/add/delete | 1, 3 | ✅ AI menambah, mengubah, dan menghapus item di proyek yang terbuka; satu Undo membatalkan semuanya |
-| 1 | **Catatan di timeline + AI melihat frame** | 3 | Manusia menandai rentang waktu/item dengan catatan; AI membaca catatan itu dan bisa mengambil gambar frame mana pun |
-| 1b | **Log editan + catatan selera** | 4 → 1 | Editan manusia pada item AI tercatat di `edits/<projectId>.jsonl`; AI menulis aturan selera dari pola berulang, dan draf berikutnya sudah memakai aturan itu |
-| 2 | **Bahan mograph:** ikon (Iconify), garis/panah/path, grup, progres gambar | 1, 3 | AI menyusun satu adegan dari ikon dan bentuk; tiap bagian bisa di-drag dan di-resize di preview |
-| 3 | **Gerak hidup + transisi:** easing, memantul, bergiliran, preset muncul/pindah/hilang, transisi antar klip | 1, 3 | Adegan tahap 2 bergerak tanpa terlihat kaku; manusia bisa mengganti preset per elemen |
-| 4 | **Sebelum/sesudah:** bayangan state lain + lintasan di preview | 2 | Posisi awal dan akhir animasi terlihat dan bisa ditarik langsung |
-| 5 | **Kedalaman:** bayangan, gradasi, parallax, kamera (zoom/geser) | 1 | Adegan punya kedalaman tanpa render di luar editor |
-| 6 | **3D:** elemen model 3D dan teks 3D (Three.js), dirender per frame | 1 | Model 3D tampil di preview dan export sama persis; posisi/putaran bisa di-keyframe |
-| 7 | **Skrip → draf umum:** format draf dari skrip + VO yang tidak bergantung pada proyek tertentu | 1 | Skrip baru jadi draf di editor tanpa kode khusus proyek |
+| # | Stage | Steps supported | Status | Done when |
+|---|---|---|---|---|
+| ? | **Folder storage** | 1, 2, 3, 4 | Done (#7) | Projects and media are stored in a local folder, open in another browser, and old browser projects are safely copied |
+| 0 | Agent bridge: draft import, timeline sync, draft set/add/delete | 1, 3 | Done (#1) | AI adds, changes, and deletes items in the open project; one Undo reverses everything |
+| 1 | **Timeline notes + AI frame viewing** | 3 | Done (#4) | The human marks a time range/item with a note; AI reads it and can capture any frame |
+| 1b | **Edit log + preferences** | 4 → 1 | Done (#2) | Human edits to AI items are logged in `edits/<projectId>.jsonl`; AI writes preference rules from recurring patterns, and the next draft uses them |
+| 2 | **Motion graphics building blocks:** icons (Iconify), lines/arrows/paths, groups, draw progress | 1, 3 | Done (#6); partial leftovers: `drawProgress` for stroke icons, group transforms with animated members untested | AI builds a scene from icons and shapes; each part can be dragged and resized in the preview |
+| 3 | **Lively motion + transitions:** easing, bounce, stagger, appear/move/disappear presets, transitions between clips | 1, 3 | Planned | The stage 2 scene moves without looking stiff; the human can change presets per element |
+| 4 | **Before/after:** ghost of another state + path in preview | 2 | Planned | Animation start and end positions are visible and can be dragged directly |
+| 5 | **Depth:** shadows, gradients, parallax, camera (zoom/pan) | 1 | Planned | The scene has depth without rendering outside the editor |
+| 6 | **3D:** 3D model and text elements (Three.js), rendered per frame | 1 | Done (#5); 3D text, material color, and loading placeholder later | 3D models look identical in preview and export; position/rotation can be keyframed |
+| 7 | **Script → generic draft:** draft format from script + voice-over independent of a specific project | 1 | Planned | A new script becomes a draft in the editor without project-specific code |
+| 8 | **Ready for local AI:** one-command install, prompt for footage folder and create `.env.local`, and start server; step-by-step video-editing agent playbook; generic agent CLI (status / draft / frames / notes / preferences); apply drafts server-side to disk projects without an open browser; script → draft with stage 7 | 1, 3, 4 | Planned | A fresh clone, one command, and a local AI pointed at `AGENTS.md` produce a first draft from a script and footage folder |
+| — | **Preview quality:** Full / ½ / ¼ | 2 | Done (#8) | Preview quality is selectable without reducing export or agent frame quality |
+| — | **Compound clips** | 1, 2, 3 | In progress: PR A foundation in progress; B timeline UI and C agent path planned | Foundation, timeline UI, and agent path are complete |
 
-## Belakangan
+## Later
 
-- Lottie (animasi siap pakai)
-- Penerjemah scene Manim lama → primitif
-- Morph bentuk A → B, grafik data
-- Rekam suara di editor
+- Lottie (ready-made animation)
+- Convert old Manim scenes → primitives
+- Shape morph A → B, data charts
+- Voice recording in the editor

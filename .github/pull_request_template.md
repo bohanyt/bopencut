@@ -1,5 +1,5 @@
-## Isi
+## What
 
-## Selesai kalau (GOAL.md)
+## Done when (GOAL.md)
 
-## Bukti uji
+## Test evidence

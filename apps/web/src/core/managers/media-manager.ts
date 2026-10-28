@@ -45,7 +45,7 @@ export class MediaManager {
 					description: error instanceof Error ? error.message : undefined,
 				});
 			} else {
-				toast.error("Media gagal disimpan", { description: error instanceof Error ? error.message : undefined });
+				toast.error("Failed to save media", { description: error instanceof Error ? error.message : undefined });
 			}
 
 			return null;

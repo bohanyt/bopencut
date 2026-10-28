@@ -1,5 +1,5 @@
-// Impor bundle agen (AGENT_WORKSPACE/bundle/bundle.json) menjadi proyek OpenCut biasa.
-// Semua elemen tetap elemen OpenCut asli, jadi bisa digeser/trim/hapus seperti biasa.
+// Import an agent bundle (AGENT_WORKSPACE/bundle/bundle.json) as a normal OpenCut project.
+// All elements remain native OpenCut elements and can be moved, trimmed, or deleted as usual.
 import { EditorCore } from "@/core";
 import type { AudioTrack, EffectTrack, GraphicTrack, TextTrack, OverlayTrack, SceneTracks, VideoTrack } from "@/timeline/types";
 import { loadIcon } from "@/stickers/providers/iconify";
@@ -21,7 +21,7 @@ export async function importAgentBundle({ onStatus }: { onStatus: (text: string)
 
 	let done = 0;
 	for (const a of bundle.assets) {
-		onStatus(`Memuat aset ${++done}/${bundle.assets.length}: ${a.name}`);
+		onStatus(`Loading asset ${++done}/${bundle.assets.length}: ${a.name}`);
 		media.set(a.key, await loadAgentAsset({ projectId, asset: a }));
 	}
 
@@ -29,7 +29,7 @@ export async function importAgentBundle({ onStatus }: { onStatus: (text: string)
 		if (e.icon) e.icon.svg = await loadIcon(e.icon.name);
 	}
 
-	onStatus("Menyusun timeline…");
+	onStatus("Building timeline…");
 	const canvas = { width: bundle.width, height: bundle.height };
 	const keyframes: PendingKeyframe[] = [];
 	const build = (e: AgentElement, trackId: string) => buildAgentElement({ e, media: e.asset ? media.get(e.asset as string) : undefined, trackId, canvas, keyframes });
@@ -37,7 +37,7 @@ export async function importAgentBundle({ onStatus }: { onStatus: (text: string)
 	const mainId = generateUUID();
 	const audioId = generateUUID();
 	const tracks: SceneTracks = {
-		main: { id: mainId, name: "Utama", type: "video", muted: false, hidden: false, elements: bundle.main.map((e) => build(e, mainId)) } as VideoTrack,
+		main: { id: mainId, name: "Main", type: "video", muted: false, hidden: false, elements: bundle.main.map((e) => build(e, mainId)) } as VideoTrack,
 		overlay: bundle.overlay.map((t) => {
 			const id = generateUUID();
 			return t.type === "effect"
@@ -53,6 +53,6 @@ export async function importAgentBundle({ onStatus }: { onStatus: (text: string)
 	editor.timeline.updateTracks(tracks);
 	editor.timeline.upsertKeyframes({ keyframes: keyframes.map((k) => ({ ...k, time: secs(k.time), interpolation: "linear" as const })) });
 	await editor.project.saveCurrentProject();
-	onStatus(`Selesai · ${bundle.assets.length} aset · membuka editor…`);
+	onStatus(`Done · ${bundle.assets.length} assets · opening editor…`);
 	return projectId;
 }

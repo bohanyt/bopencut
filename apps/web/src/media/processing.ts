@@ -96,7 +96,7 @@ export async function processMediaAssets({
 	let completed = 0;
 
 	for (const original of fileArray) {
-		// GIF diubah ke MP4 di server lokal supaya animasinya ikut (bukan frame pertama saja).
+		// Convert GIF to MP4 on the local server to preserve animation.
 		let file = original;
 		if (original.type === "image/gif") {
 			try {
@@ -104,7 +104,7 @@ export async function processMediaAssets({
 				if (!res.ok) throw new Error(await res.text());
 				file = new File([await res.blob()], original.name.replace(/\.gif$/i, "") + ".mp4", { type: "video/mp4" });
 			} catch (error) {
-				toast.error(`GIF ${original.name} tidak bisa diubah ke video; dipakai sebagai gambar diam`);
+				toast.error(`GIF ${original.name} could not be converted to video; using a still image`);
 			}
 		}
 		const fileType = getMediaTypeFromFile({ file });

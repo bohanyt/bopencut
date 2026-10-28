@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 export function safeId(id: string): string {
-	if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error("ID tidak valid");
+	if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error("Invalid ID");
 	return id;
 }
 
@@ -44,7 +44,7 @@ export function revision(value: unknown): string {
 	return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-// Satu antrean per proyek menjaga pemeriksaan revisi dan rename tetap berurutan.
+// One queue per project keeps revision checks and renames ordered.
 const locks = new Map<string, Promise<void>>();
 export async function withProjectLock<T>(
 	id: string,
@@ -78,7 +78,7 @@ export async function saveMedia(
 		typeof metadata.fileName !== "string" ||
 		typeof metadata.fileType !== "string"
 	)
-		throw new Error("Metadata tidak valid");
+		throw new Error("Invalid metadata");
 	await fs.mkdir(dir, { recursive: true });
 	const ext = path.extname(metadata.fileName).toLowerCase();
 	const suffix = /^\.[a-z0-9]{1,10}$/.test(ext) ? ext : ".bin";

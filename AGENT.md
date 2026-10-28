@@ -1,61 +1,61 @@
-# bopencut — ruang kerja bersama manusia + AI
+# bopencut — shared human + AI workspace
 
-**bopencut** adalah fork dari [OpenCut](https://github.com/opencut-app/opencut-classic) buatan tim OpenCut (lisensi MIT, lihat `LICENSE`). Semua kredit editor dasarnya milik mereka; fork ini hanya menambahkan jembatan agen dan beberapa perbaikan kecil. Dipakai untuk proyek video apa saja. Manusia mengedit di UI seperti biasa; agen (AI/skrip) bisa membaca dan mengubah timeline yang sama tanpa menimpa edit manusia.
+**bopencut** is a fork of [OpenCut](https://github.com/opencut-app/opencut-classic) by the OpenCut team (MIT license; see `LICENSE`). All credit for the base editor belongs to them; this fork adds an agent bridge and a few small improvements. It can be used for any video project. Humans edit in the UI as usual; agents (AI/scripts) can read and modify the same timeline without overwriting human edits.
 
-## Menjalankan
+## Running
 ```
 bun install
 cd apps/web && bunx next dev --turbopack -H 127.0.0.1 -p 3000
 ```
-Tanpa akun/DB. Proyek dan media tersimpan di `<repo>/workspace/projects/<projectId>/`: `project.json`, `media/<mediaId>.<ext>`, dan metadata media. Folder `workspace/` diabaikan Git. Proyek browser lama disalin otomatis beserta medianya saat pertama dibuka; salinan browser tidak dihapus. Penghapusan proyek disk tidak memicu penyalinan ulang.
+No account or database is required. Projects and media are stored in `<repo>/workspace/projects/<projectId>/`: `project.json`, `media/<mediaId>.<ext>`, and media metadata. Git ignores `workspace/`. Old browser projects and their media are automatically copied the first time they are opened; the browser copies are not deleted. Deleting a disk project does not trigger another copy.
 
-## Folder kerja agen (`apps/web/.env.local`)
+## Agent workspace (`apps/web/.env.local`)
 ```
-BOPENCUT_DATA=C:\path\ke\folder-data         # default: <repo>/workspace
-AGENT_WORKSPACE=C:\path\ke\folder-kerja     # default: <repo>/workspace
-AGENT_FILES_ROOT=C:\path\ke\akar-aset        # default: = AGENT_WORKSPACE
+BOPENCUT_DATA=C:\path\to\data-folder         # default: <repo>/workspace
+AGENT_WORKSPACE=C:\path\to\workspace     # default: <repo>/workspace
+AGENT_FILES_ROOT=C:\path\to\asset-root        # default: = AGENT_WORKSPACE
 ```
-BOPENCUT_DATA dapat menunjuk folder di luar repo; jangan memasukkan data pribadi ke Git. Satu folder kerja per pekerjaan; ganti env lalu restart server untuk pindah proyek.
+BOPENCUT_DATA can point outside the repository; do not commit private data. Use one workspace per job; change the environment and restart the server to switch projects.
 
-| File di AGENT_WORKSPACE | Arah | Isi |
+| File in AGENT_WORKSPACE | Direction | Contents |
 |---|---|---|
-| `bundle/bundle.json` | agen → editor | draf utuh; buka **/agent** → *Impor draf* = proyek baru |
-| `project.json`, `sync/<projectId>.json` | editor → agen | timeline terkini setiap ada edit (debounce 0,8 s) |
-| `draft.json` | agen → editor | operasi per item; diterapkan ±2 s sebagai **1 langkah Undo** |
-| `draft-result.json` | editor → agen | hasil per operasi (item yang dihapus manusia dilewati) |
+| `bundle/bundle.json` | agent → editor | complete draft; open **/agent** → *Import draft* = new project |
+| `project.json`, `sync/<projectId>.json` | editor → agent | current timeline after each edit (0.8 s debounce) |
+| `draft.json` | agent → editor | per-item operations; applied in ~2 s as **one Undo step** |
+| `draft-result.json` | editor → agent | result per operation (items deleted by the human are skipped) |
 
-**bundle.json** (`schema` bebas): `name,width,height`, `assets:[{key,path(relatif AGENT_FILES_ROOT),type:image|video|audio,name}]`, `main:[el]`, `audio:[el]`, `overlay:[{name,type:"video"|"effect",elements:[el]}]` (index 0 = paling atas). `el`: `agent_id,name,start,duration,trimStart` (detik), `asset` atau `effect`+`effectParams`, `params` (mis. `transform.positionX/Y` = piksel dari pusat kanvas, `opacity`, `volume`), `size:[w,h]` (ukuran tampil piksel), `keyframes:[{path:"opacity"|"scale"|param,time,value}]`.
+**bundle.json** (any `schema`): `name,width,height`, `assets:[{key,path(relative to AGENT_FILES_ROOT),type:image|video|audio,name}]`, `main:[el]`, `audio:[el]`, `overlay:[{name,type:"video"|"effect",elements:[el]}]` (index 0 = topmost). `el`: `agent_id,name,start,duration,trimStart` (seconds), `asset` or `effect`+`effectParams`, `params` (e.g. `transform.positionX/Y` = pixels from canvas center, `opacity`, `volume`), `size:[w,h]` (display size in pixels), `keyframes:[{path:"opacity"|"scale"|param,time,value}]`.
 
-**draft.json**: `{schema:"opencut-agent-draft-1", rev, label, projectId?, ops:[{op:"set", match:{agentId}|{id}, start?, duration?, trimStart?, params?}, {op:"delete", match:…}, {op:"add", track:{name, type?:"video"|"audio"|"effect", index?}, element:el}]}`. Pada `add`, `el.asset` berupa objek `{path,type,name}` (bukan key bundle); trek dengan nama itu dipakai kalau sudah ada, kalau belum dibuat (overlay disisipkan di `index`). Seluruh draf = satu Undo; item yang diubah/ditambah langsung terpilih.
+**draft.json**: `{schema:"opencut-agent-draft-1", rev, label, projectId?, ops:[{op:"set", match:{agentId}|{id}, start?, duration?, trimStart?, params?}, {op:"delete", match:…}, {op:"add", track:{name, type?:"video"|"audio"|"effect", index?}, element:el}]}`. For `add`, `el.asset` is an object `{path,type,name}` (not a bundle key); an existing track with that name is reused, otherwise one is created (overlays are inserted at `index`). Exact names take precedence; `Main` and the legacy `Utama` are aliases in both directions. Existing saved track names are not renamed. The entire draft is one Undo; changed/added items are selected immediately.
 
-Konsol browser: `window.agent.snapshot()`, `window.agent.applyDraft(draft)`.
+Browser console: `window.agent.snapshot()`, `window.agent.applyDraft(draft)`.
 
-## Ubahan lain dari upstream
-- GIF yang di-drop diubah ke MP4 bisu (ffmpeg lokal) supaya bergerak.
-- Perbaikan: preview putus pada trek efek (`effect_pass_groups`).
-- Dibuang: React Scan, indikator dev Next, analitik databuddy.
+## Other changes from upstream
+- Dropped GIFs are converted to silent MP4 (local ffmpeg) so they animate.
+- Fix: preview interruption on effect tracks (`effect_pass_groups`).
+- Removed: React Scan, Next dev indicator, databuddy analytics.
 
-## Catatan selera
+## Preferences
 
-Sebelum menyusun bundle atau draf, baca `PREFERENCES.md` umum di folder `AGENT_PREFS` dan `AGENT_WORKSPACE/PREFERENCES.md` untuk proyek/channel jika ada. Kedua file bersifat pribadi dan tidak disimpan di repo. Editor tidak membacanya.
+Before assembling a bundle or draft, read the general `PREFERENCES.md` in `AGENT_PREFS` and the project/channel `AGENT_WORKSPACE/PREFERENCES.md`, if present. Both files are private and are not stored in the repository. The editor does not read them.
 
-Edit manusia dicatat di `AGENT_WORKSPACE/edits/<projectId>.jsonl`. Jalankan `bun apps/web/scripts/edits-summary.ts <AGENT_WORKSPACE> [workspace lain...]` (tambahkan `--json` untuk JSON). Tulis aturan baru hanya jika pola muncul minimal 3 kali. Setiap aturan memuat aturan, bukti jumlah kejadian dan proyek, serta tanggal; manusia bebas mengedit atau menghapusnya. Contoh format ada di `PREFERENCES.example.md`.
+Human edits are logged in `AGENT_WORKSPACE/edits/<projectId>.jsonl`. Run `bun apps/web/scripts/edits-summary.ts <AGENT_WORKSPACE> [other workspace...]` (add `--json` for JSON, including `ruleCandidate`). Write a new rule only when a pattern appears at least 3 times. Each rule includes the rule, evidence with counts and projects, and date; the human may edit or delete it. See `PREFERENCES.example.md` for an example.
 
-## Catatan dan frame
+## Notes and frames
 
-Bookmark pada ruler juga menjadi catatan: tekan tombol bookmark di playhead (pilih elemen sebelumnya untuk mengaitkannya), lalu klik dua kali marker untuk mengisi teks, durasi, warna, menyelesaikan, atau menghapusnya. Marker agen berwarna oranye; marker selesai berwarna abu-abu. `notes` pada snapshot berisi `{id,text,start,end?,elementIds,replies,author,resolved,createdAt}`; waktu dalam detik. Bookmark lama yang belum memiliki teks tidak masuk daftar catatan.
+Ruler bookmarks also serve as notes: press the bookmark button at the playhead (select an element first to associate it), then double-click the marker to enter text, duration, color, resolve, or delete it. Agent markers are orange; resolved markers are gray. Snapshot `notes` contain `{id,text,start,end?,elementIds,replies,author,resolved,createdAt}`; times are in seconds. Old bookmarks without text are excluded from the notes list.
 
-Tambahkan operasi `{op:"note", text, start, end?, match?:[{agentId}|{id}]}` atau `{op:"resolve-note", id}` atau `{op:"reply-note", id, text}` ke `ops` pada draf. Hasilnya termasuk id catatan dan status per operasi di `draft-result.json`, dan seluruh draf tetap satu Undo. Karena bookmark memakai satu posisi per frame, penambahan pada posisi yang sudah ada ditolak dan dilaporkan.
+Add `{op:"note", text, start, end?, match?:[{agentId}|{id}]}`, `{op:"resolve-note", id}`, or `{op:"reply-note", id, text}` to draft `ops`. The result includes the note ID and status per operation in `draft-result.json`, and the whole draft remains one Undo. Because bookmarks use one position per frame, additions at an existing position are rejected and reported.
 
-Tulis `frames-request.json`: `{rev:"ambil-1", times:[0,1,2], width:960}`. `rev` hanya boleh berisi huruf, angka, `_`, atau `-`; waktu harus di dalam timeline. `width` opsional (default 960, maksimal 4096; frame selalu dirender resolusi penuh lalu diperkecil), tinggi mengikuti rasio kanvas. Editor aktif memproses permintaan saat tidak ada drag; `frames-result.json` berisi `{rev,files:["frames/ambil-1/0.jpg",...],projectId}` setelah semua frame tersimpan. Gunakan `rev` baru untuk permintaan berikutnya.
+Write `frames-request.json`: `{rev:"capture-1", times:[0,1,2], width:960}`. `rev` may contain only letters, digits, `_`, or `-`; times must be within the timeline. `width` is optional (default 960, maximum 4096; frames are always rendered at full resolution then scaled down); height follows the canvas aspect ratio. The active editor processes requests when no drag is in progress; `frames-result.json` contains `{rev,files:["frames/capture-1/0.jpg",...],projectId}` after all frames are saved. Use a new `rev` for each request.
 
-## Model 3D
-Aset `type:"model"` menerima GLB atau glTF dengan sumber daya tertanam. Pada elemen, gunakan `model3d:{params:{rotationY:0,modelScale:1,cameraDistance:3.5,cameraFov:45,lightIntensity:2,lightX:3,lightY:4,lightZ:5}}`; `rotationX/Y/Z` dalam derajat. Parameter angka dapat dianimasikan lewat `keyframes` (mis. `path:"rotationY"`). Transform dan opacity bekerja seperti elemen gambar.
+## 3D models
+Assets with `type:"model"` accept GLB or glTF with embedded resources. On an element, use `model3d:{params:{rotationY:0,modelScale:1,cameraDistance:3.5,cameraFov:45,lightIntensity:2,lightX:3,lightY:4,lightZ:5}}`; `rotationX/Y/Z` are in degrees. Numeric parameters can be animated through `keyframes` (e.g. `path:"rotationY"`). Transform and opacity work as for image elements.
 
-Elemen grafik dapat memakai `graphic:{definitionId:"line"|"arrow"|"path"|"rectangle"|"ellipse"|"polygon"|"star",params:{...}}` pada trek `graphic`. `path.params.d` menerima path SVG; `path.params.viewBox` opsional berupa string `"minX minY width height"`, atau batas path dihitung otomatis. `drawProgress` (0–1) pada line, arrow, dan path dapat dianimasikan lewat `keyframes` dengan `path:"drawProgress"`. `size:[w,h]` menentukan ukuran tampilan dalam piksel.
+Graphic elements can use `graphic:{definitionId:"line"|"arrow"|"path"|"rectangle"|"ellipse"|"polygon"|"star",params:{...}}` on a `graphic` track. `path.params.d` accepts an SVG path; `path.params.viewBox` is an optional `"minX minY width height"` string, otherwise path bounds are calculated automatically. `drawProgress` (0–1) on lines, arrows, and paths can be animated through `keyframes` with `path:"drawProgress"`. `size:[w,h]` sets display size in pixels.
 
-Ikon dapat ditambah dengan `icon:{name:"lucide:server",color:"#ffffff"}` pada trek `graphic`; data ikon diambil saat impor dan warnanya dapat diubah di editor.
-Teks dapat ditambah dengan `text:"Isi teks"` pada trek `text`; atribut teks dapat diatur melalui `params`.
-`group` disimpan dan dilaporkan sebagai `groupId`. Klik memilih grup, klik ganda memilih anggota, dan Ctrl+G / Ctrl+Shift+G membuat atau melepas grup.
+Add icons with `icon:{name:"lucide:server",color:"#ffffff"}` on a `graphic` track; icon data is fetched during import and its color can be changed in the editor.
+Add text with `text:"Text"` on a `text` track; text attributes can be set through `params`.
+`group` is stored and reported as `groupId`. Click selects a group, double-click selects a member, and Ctrl+G / Ctrl+Shift+G groups or ungroups.
 
-Kualitas preview dapat dipilih di toolbar: Penuh, ½ (default), atau ¼. Pilihan tersimpan di browser dan tidak mengurangi kualitas ekspor atau frame agen.
+Preview quality can be selected in the toolbar: Full, ½ (default), or ¼. The choice is stored in the browser and does not reduce export or agent frame quality.

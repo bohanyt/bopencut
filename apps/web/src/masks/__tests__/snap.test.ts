@@ -346,8 +346,8 @@ describe("mask snapping", () => {
 		// bounds.width=200 → localCanvasSize.width/2=100 is the right snap target.
 		// width=0.4, scale=1 → aabbHalfW = (0.4*200)/2 * 1 = 40.
 		// At scale=2.48 → rightEdge=0+40*2.48=99.2; |99.2-100|=0.8 < threshold(8)
-		// → snaps to scale=1*(100/40)=2.5. Skala seragam dari pusat: tepi kiri ikut
-		// menempel di -100, jadi kedua garis tampil.
+		// → snaps to scale=1*(100/40)=2.5. Uniform scaling from the center keeps
+		// the left edge at -100, so both lines appear.
 		const result = snapBoxMaskInteraction({
 			handleId: { kind: "scale" },
 			startParams: buildRectangleParams({ scale: 1 }),
@@ -533,8 +533,8 @@ describe("custom mask point insertion", () => {
 			id: "new",
 			x: 0,
 			y: -0.1,
-			// Disisipkan dengan de Casteljau supaya bentuk kurva tetap; handle titik
-			// baru mengikuti arah segmen.
+			// Inserted using de Casteljau to preserve the curve; the new point's
+			// handles follow the segment direction.
 			inX: -0.1,
 			inY: 0,
 			outX: 0.1,

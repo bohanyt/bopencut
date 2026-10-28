@@ -1,3 +1,4 @@
+// Inherited from OpenCut; not needed to run bopencut locally.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "opencut",
