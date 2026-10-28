@@ -301,3 +301,130 @@ describe("bundle compounds", () => {
 		expect(elementsOf(built.scenes.find((s) => s.id === inner.sceneId) as TScene).map((e) => e.agentId)).toEqual(["t"]);
 	});
 });
+
+describe("round 2 regressions", () => {
+	test("ungrouping the open compound: Undo and Redo restore the scene, playhead, and selection", async () => {
+		const editor = setup();
+		editor.playback.seek({ time: T(8) });
+		await editor.scenes.switchToScene({ sceneId: "s1" });
+		editor.playback.seek({ time: T(2) });
+		const a1 = { trackId: "t-a1", elementId: "a1" };
+		editor.selection.setSelectedElements({ elements: [a1] });
+
+		await applyDraft(draft([{ op: "ungroup", match: { id: "c1" } }]));
+		expect(editor.scenes.getScenes().some((s) => s.id === "s1")).toBe(false);
+		expect(editor.scenes.getActiveScene().id).toBe("main");
+		expect(editor.playback.getCurrentTime()).toBe(T(8));
+		const restored = editor.selection.getSelectedElements();
+		expect(restored.length).toBeGreaterThan(0);
+		const mainIds = elementsOf(sceneOf(editor, "main")).map((e) => e.id);
+		expect(restored.every((ref) => mainIds.includes(ref.elementId))).toBe(true);
+		const ungrouped = state(editor);
+
+		editor.command.undo();
+		expect(editor.scenes.getScenes().some((s) => s.id === "s1")).toBe(true);
+		expect(editor.scenes.getActiveScene().id).toBe("s1");
+		expect(editor.playback.getCurrentTime()).toBe(T(2));
+		expect(editor.selection.getSelectedElements()).toEqual([a1]);
+		expect(editor.command.canRedo()).toBe(true);
+		expect(editor.command.canUndo()).toBe(false);
+
+		editor.command.redo();
+		expect(state(editor)).toBe(ungrouped);
+		expect(editor.scenes.getActiveScene().id).toBe("main");
+		expect(editor.playback.getCurrentTime()).toBe(T(8));
+		expect(editor.selection.getSelectedElements()).toEqual(restored);
+		editor.command.undo();
+		expect(editor.scenes.getActiveScene().id).toBe("s1");
+	});
+
+	test("grouping and ungrouping at non-zero times log only the scene change, not remapped times or tracks", async () => {
+		const editor = setup();
+		const sent: { field: string; elementId: string; from: unknown; to: unknown }[] = [];
+		const capture = () => ({ projectId: "p", items: buildEditItems({ scenes: editor.scenes.getScenes(), rootSceneId: "main", mediaName: new Map() }) });
+		const logger = createEditLogger(capture, () => false, (lines) => sent.push(...lines));
+		const settle = async () => { logger.changed(); await new Promise((resolve) => setTimeout(resolve, 900)); };
+
+		// c1 starts at 10 s: inside the new compound its own start becomes 0.
+		const { compound } = editor.timeline.createCompound({ elements: [{ trackId: "t-c1", elementId: "c1" }] });
+		await settle();
+		expect(sent.map((l) => [l.elementId, l.field])).toEqual([["c1", "sceneId"]]);
+		sent.length = 0;
+		editor.timeline.ungroupCompound(compound);
+		await settle();
+		expect(sent.map((l) => [l.elementId, l.field])).toEqual([["c1", "sceneId"]]);
+		sent.length = 0;
+		// The main-track element goes to the nested "Main Track": no track line either.
+		editor.timeline.createCompound({ elements: [{ trackId: "t-main", elementId: "bg" }] });
+		await settle();
+		expect(sent.map((l) => [l.elementId, l.field])).toEqual([["bg", "sceneId"]]);
+		sent.length = 0;
+		// A real edit is still logged.
+		const host = editor.scenes.getActiveScene();
+		const track = host.tracks.overlay.find((t) => t.elements.some((e) => e.id === "c1"));
+		editor.timeline.updateElements({ updates: [{ trackId: track?.id ?? "", elementId: "c1", patch: { startTime: T(11) } }] });
+		await settle();
+		expect(sent.map((l) => [l.elementId, l.field, l.from, l.to])).toEqual([["c1", "startTime", 10, 11]]);
+	});
+
+	test("id wins across all scenes before agentId is tried", () => {
+		const r = resolveMatch(nested(), "main", { id: "bg", agentId: "label" });
+		expect("hit" in r && [r.hit.sceneId, r.hit.element.id]).toEqual(["main", "bg"]);
+	});
+
+	test("Main reaches the main track of a UI-created compound (named Main Track)", () => {
+		const editor = setup();
+		const { compound, sceneId } = editor.timeline.createCompound({ elements: [{ trackId: "t-c1", elementId: "c1" }] });
+		const nestedScene = sceneOf(editor, sceneId);
+		expect(nestedScene.tracks.main.name).toBe("Main Track");
+		const element = { agent_id: "clip", name: "clip", asset: { path: "a.mp4", type: "video" as const, name: "a" }, start: 0, duration: 2 };
+		const out = computeAgentDraft({
+			scenes: editor.scenes.getScenes(), rootSceneId: "main", canvas: { width: 1920, height: 1080 }, fps: { numerator: 30, denominator: 1 }, ripple: false,
+			ops: [{ op: "add", track: { name: "Main", type: "video", compound: { id: compound.elementId } }, element }],
+			mediaFor: () => ({ id: "m-a", type: "video", width: 1920, height: 1080, duration: 4 }),
+		});
+		expect(out.results[0]).toMatchObject({ ok: true });
+		const after = out.scenes.find((s) => s.id === sceneId) as TScene;
+		expect(after.tracks.overlay.length).toBe(nestedScene.tracks.overlay.length);
+		expect(after.tracks.main.elements.map((e) => e.agentId)).toEqual(["clip"]);
+		// Agent-built compounds use the same default main track name.
+		const built = computeAgentDraft({
+			scenes: editor.scenes.getScenes(), rootSceneId: "main", canvas: { width: 1920, height: 1080 }, fps: { numerator: 30, denominator: 1 }, ripple: false,
+			ops: [{ op: "compound", name: "C", start: 0, main: [element] }], mediaFor: () => ({ id: "m-a", type: "video", width: 1920, height: 1080, duration: 4 }),
+		});
+		const content = built.scenes.find((s) => s.id === built.results[0].sceneId) as TScene;
+		expect(content.tracks.main.name).toBe("Main Track");
+		expect(content.tracks.main.elements.map((e) => e.agentId)).toEqual(["clip"]);
+	});
+
+	test("deeply shared nesting stays bounded: capped instances, fast snapshot and edit capture", () => {
+		// 14 levels of split compounds: every scene shows the next one twice (15 scenes, 28 clips).
+		const levels = 14;
+		const scenes: TScene[] = [];
+		for (let level = 0; level <= levels; level++) {
+			const id = level === 0 ? "main" : `L${level}`;
+			const clips = level < levels ? [clip(`c${level}a`, `L${level + 1}`, 0, 0, 1, 2), clip(`c${level}b`, `L${level + 1}`, 1, 1, 1, 2)] : [];
+			const leaf = level === levels ? [el("text", "leaf", 0, 2, { agentId: "leaf", params: { content: "x" } }) as TextElement] : [];
+			scenes.push(scene(id, {
+				overlay: [{ id: `t${level}`, name: "Clips", type: "video", muted: false, hidden: false, elements: clips }, { id: `x${level}`, name: "Text", type: "text", hidden: false, elements: leaf }],
+				main: main([], `m${level}`), audio: [],
+			}, level === 0 ? undefined : "compound"));
+		}
+		let started = performance.now();
+		const view = buildSceneSnapshot({ scenes, rootSceneId: "main", mediaName: new Map() });
+		const snapshotMs = performance.now() - started;
+		const deepest = view.compounds.find((c) => c.sceneId === `L${levels}`);
+		expect(view.compounds.length).toBe(levels);
+		expect(deepest?.instances.length).toBeLessThanOrEqual(32);
+		expect(deepest?.truncated).toBe(true);
+		expect(deepest?.path).toEqual(Array.from({ length: levels }, (_, i) => `c${i}a`));
+		started = performance.now();
+		const items = buildEditItems({ scenes, rootSceneId: "main", mediaName: new Map() });
+		const captureMs = performance.now() - started;
+		expect(items.find((i) => i.id === "leaf")?.path).toEqual(deepest?.path);
+		const hit = resolveMatch(scenes, "main", { agentId: "leaf" });
+		expect("hit" in hit && hit.hit.sceneId).toBe(`L${levels}`);
+		expect(snapshotMs).toBeLessThan(150);
+		expect(captureMs).toBeLessThan(50);
+	});
+});

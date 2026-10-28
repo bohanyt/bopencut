@@ -143,11 +143,13 @@ export async function applyDraft(draft: Draft) {
 		scenes: before, rootSceneId: root.id, ops, mediaFor: (e) => media.get(e), results,
 		canvas: project.settings.canvasSize, fps: project.settings.fps, ripple: editor.command.isRippleEnabled,
 	});
+	// The open scene stays open unless the draft removed it (ungrouping the compound being edited): then the root opens.
+	const openAfter = outcome.scenes.some((scene) => scene.id === openScene.id) ? openScene.id : root.id;
 	// Select changed or added items so they are visible on the timeline (inside history, so redo selects them again).
-	const selection = selectionInScene(outcome.scenes, root.id, openScene.id, outcome.touched);
+	const selection = selectionInScene(outcome.scenes, openAfter, outcome.touched);
 	let error: string | null = null;
 	try {
-		const command = new AgentDraftCommand({ before, after: outcome.scenes, selection, wrap: (action) => (editLogger ? editLogger.agent(action) : action()) });
+		const command = new AgentDraftCommand({ before, after: outcome.scenes, selection, openBefore: openScene.id, openAfter, wrap: (action) => (editLogger ? editLogger.agent(action) : action()) });
 		if (command.getChangedSceneIds().length) editor.command.execute({ command });
 	} catch (e) {
 		error = e instanceof Error ? e.message : String(e);

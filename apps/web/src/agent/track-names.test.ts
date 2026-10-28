@@ -12,3 +12,15 @@ describe("track name aliases", () => {
 		expect(findTrackByName([legacy], "Other", "video")).toBeUndefined();
 	});
 });
+
+describe("main track alias includes the default main track name", () => {
+	test("Main, Utama, and Main Track find each other; an exact name wins", () => {
+		const ui = { name: "Main Track", type: "video" };
+		const exact = { name: "Main", type: "video" };
+		expect(findTrackByName([ui], "Main", "video")).toBe(ui);
+		expect(findTrackByName([ui], "Utama", "video")).toBe(ui);
+		expect(findTrackByName([exact], "Main Track", "video")).toBe(exact);
+		expect(findTrackByName([ui, exact], "Main", "video")).toBe(exact);
+		expect(findTrackByName([ui], "Main", "audio")).toBeUndefined();
+	});
+});

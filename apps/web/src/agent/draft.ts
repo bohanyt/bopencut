@@ -11,7 +11,7 @@ import { generateUUID } from "@/utils/id";
 import { validNote } from "./notes";
 import { type AgentElement, type AgentTrackRef, type LoadedMedia, secs } from "./elements";
 import { type BuildContext, applyAgentKeyframes, cloneTracks, placeAgentElement } from "./compound-content";
-import { type AgentMatch, type ElementHit, addressOf, orderedTracks, resolveCompoundTarget, resolveMatch } from "./scene-graph";
+import { type AgentMatch, type ElementHit, addressOf, getScenePaths, orderedTracks, resolveCompoundTarget, resolveMatch } from "./scene-graph";
 
 /** `compound` = add into that compound clip's content (times relative to it). */
 export type DraftTrackRef = AgentTrackRef & { compound?: AgentMatch };
@@ -59,11 +59,14 @@ export function computeAgentDraft({ scenes, rootSceneId, ops, mediaFor, canvas, 
 		if ("error" in resolved) throw new Error(resolved.error);
 		return resolved.hit;
 	};
+	// Addresses are resolved once the draft is complete, against the final scenes (paths computed once).
+	let paths: Map<string, string[]> | undefined;
+	const at = (sceneId: string, elementId: string) => addressOf(list, rootSceneId, sceneId, elementId, (paths ??= getScenePaths(list, rootSceneId)));
 	const address = (result: any, key: string, sceneId: string, elementId: string) => {
-		finish.push(() => { result[key] = addressOf(list, rootSceneId, sceneId, elementId); });
+		finish.push(() => { result[key] = at(sceneId, elementId); });
 	};
 	const addresses = (result: any, key: string, refs: Touched[]) => {
-		finish.push(() => { result[key] = refs.map((ref) => addressOf(list, rootSceneId, ref.sceneId, ref.elementId)); });
+		finish.push(() => { result[key] = refs.map((ref) => at(ref.sceneId, ref.elementId)); });
 	};
 	const bookmarksOfRoot = () => [...sceneOf(rootSceneId).bookmarks];
 	const setRootBookmarks = (bookmarks: Bookmark[]) => replace({ ...sceneOf(rootSceneId), bookmarks });

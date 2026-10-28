@@ -84,8 +84,8 @@ export function placeAgentElement({ tracks, sceneId, e, ref, ctx }: {
 export function buildAgentCompound({ e, hostSceneId, ctx }: { e: AgentElement; hostSceneId: string; ctx: BuildContext }): CompoundElement {
 	const content = e.compound ?? {};
 	const scene: TScene = { ...buildDefaultScene({ name: e.name, isMain: false }), kind: "compound" };
+	// The main track keeps the editor's default name (same as compounds made in the UI); "Main" reaches it by alias.
 	const tracks = scene.tracks;
-	tracks.main.name = "Main";
 	const place = (el: AgentElement, ref: AgentTrackRef) => placeAgentElement({ tracks, sceneId: scene.id, e: el, ref, ctx });
 	for (const el of content.main ?? []) place(el, { name: "Main", type: "video" });
 	for (const def of content.overlay ?? []) {

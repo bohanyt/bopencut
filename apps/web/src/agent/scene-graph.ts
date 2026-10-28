@@ -25,30 +25,85 @@ export function getRootScene(scenes: TScene[], activeSceneId: string | null): TS
 	return containing.find((scene) => scene.isMain) ?? containing[0] ?? users.find((scene) => scene.isMain) ?? users[0] ?? null;
 }
 
-/** Every place a scene shows up under the root, depth first (root first). A shared scene appears once per path. */
-export function walkSceneInstances(scenes: TScene[], rootSceneId: string): SceneInstance[] {
+/** Most paths reported per scene. Shared nesting (split halves of split halves) multiplies paths, so they are capped. */
+export const MAX_INSTANCES_PER_SCENE = 32;
+
+/** Scenes reachable from the root, each once, in depth-first discovery order (root first). */
+export function getReachableScenes(scenes: TScene[], rootSceneId: string): TScene[] {
 	const byId = new Map(scenes.map((scene) => [scene.id, scene]));
-	const instances: SceneInstance[] = [];
-	const visit = (sceneId: string, path: string[], chain: CompoundElement[], stack: string[]) => {
+	const order: TScene[] = [];
+	const seen = new Set<string>();
+	const visit = (sceneId: string) => {
 		const scene = byId.get(sceneId);
-		if (!scene) return;
-		instances.push({ sceneId, path, chain });
+		if (!scene || seen.has(sceneId)) return;
+		seen.add(sceneId);
+		order.push(scene);
 		for (const track of orderedTracks(scene.tracks)) {
-			for (const element of track.elements) {
-				if (!isCompoundElement(element) || stack.includes(element.sceneId)) continue;
-				visit(element.sceneId, [...path, element.id], [...chain, element], [...stack, element.sceneId]);
-			}
+			for (const element of track.elements) if (isCompoundElement(element)) visit(element.sceneId);
 		}
 	};
-	visit(rootSceneId, [], [], [rootSceneId]);
-	return instances;
+	visit(rootSceneId);
+	return order;
 }
 
-/** First path of each scene reachable from the root (depth-first order). */
+export type SceneInstances = { instances: SceneInstance[]; truncated: boolean };
+
+/**
+ * The places each reachable scene shows up under the root, at most `limit` per scene. Built per
+ * scene from its parents' (already capped) instances, so cost grows with scenes × clips × limit,
+ * never with the number of paths. Order: parents in discovery order, then their instances, then
+ * the referencing clips in track order; the first instance gives the scene's `path`.
+ * `truncated` = some paths were left out (here or in an enclosing scene).
+ */
+export function getSceneInstances(scenes: TScene[], rootSceneId: string, limit = MAX_INSTANCES_PER_SCENE): Map<string, SceneInstances> {
+	const reachable = getReachableScenes(scenes, rootSceneId);
+	const parents = new Map<string, { sceneId: string; clip: CompoundElement }[]>();
+	for (const scene of reachable) {
+		for (const track of orderedTracks(scene.tracks)) {
+			for (const element of track.elements) {
+				if (!isCompoundElement(element)) continue;
+				const list = parents.get(element.sceneId);
+				if (list) list.push({ sceneId: scene.id, clip: element });
+				else parents.set(element.sceneId, [{ sceneId: scene.id, clip: element }]);
+			}
+		}
+	}
+	const memo = new Map<string, SceneInstances>();
+	const compute = (sceneId: string, visiting: Set<string>): SceneInstances => {
+		const known = memo.get(sceneId);
+		if (known) return known;
+		if (sceneId === rootSceneId) {
+			const root = { instances: [{ sceneId, path: [], chain: [] }], truncated: false };
+			memo.set(sceneId, root);
+			return root;
+		}
+		visiting.add(sceneId);
+		const instances: SceneInstance[] = [];
+		let truncated = false;
+		outer: for (const { sceneId: parentId, clip } of parents.get(sceneId) ?? []) {
+			if (visiting.has(parentId)) continue; // a cycle; the scenes manager rejects these anyway
+			const parent = compute(parentId, visiting);
+			truncated ||= parent.truncated;
+			for (const instance of parent.instances) {
+				if (instances.length >= limit) { truncated = true; break outer; }
+				instances.push({ sceneId, path: [...instance.path, clip.id], chain: [...instance.chain, clip] });
+			}
+		}
+		visiting.delete(sceneId);
+		const result = { instances, truncated };
+		memo.set(sceneId, result);
+		return result;
+	};
+	const result = new Map<string, SceneInstances>();
+	for (const scene of reachable) result.set(scene.id, compute(scene.id, new Set()));
+	return result;
+}
+
+/** First path of each scene reachable from the root. */
 export function getScenePaths(scenes: TScene[], rootSceneId: string): Map<string, string[]> {
 	const paths = new Map<string, string[]>();
-	for (const instance of walkSceneInstances(scenes, rootSceneId)) {
-		if (!paths.has(instance.sceneId)) paths.set(instance.sceneId, instance.path);
+	for (const [sceneId, { instances }] of getSceneInstances(scenes, rootSceneId, 1)) {
+		if (instances[0]) paths.set(sceneId, instances[0].path);
 	}
 	return paths;
 }
@@ -71,16 +126,12 @@ export function toRootInterval(start: number, end: number, chain: CompoundElemen
 	return [start, end];
 }
 
-function findInScene(scene: TScene, match: AgentMatch): ElementHit | null {
-	const find = (test: (element: TimelineElement) => boolean) => {
-		for (const track of orderedTracks(scene.tracks)) {
-			const index = track.elements.findIndex(test);
-			if (index >= 0) return { sceneId: scene.id, track, index, element: track.elements[index] };
-		}
-		return null;
-	};
-	return (match.id ? find((element) => element.id === match.id) : null)
-		?? (match.agentId ? find((element) => element.agentId === match.agentId) : null);
+function findInScene(scene: TScene, test: (element: TimelineElement) => boolean): ElementHit | null {
+	for (const track of orderedTracks(scene.tracks)) {
+		const index = track.elements.findIndex(test);
+		if (index >= 0) return { sceneId: scene.id, track, index, element: track.elements[index] };
+	}
+	return null;
 }
 
 /** Follows `path` (compound clip ids or agentIds) from the root to the scene inside the last clip. */
@@ -88,7 +139,7 @@ export function resolveScenePath(scenes: TScene[], rootSceneId: string, path: st
 	let sceneId = rootSceneId;
 	for (const entry of path) {
 		const scene = scenes.find((s) => s.id === sceneId);
-		const hit = scene ? findInScene(scene, { id: entry, agentId: entry }) : null;
+		const hit = scene ? findInScene(scene, (element) => element.id === entry) ?? findInScene(scene, (element) => element.agentId === entry) : null;
 		if (!hit || !isCompoundElement(hit.element)) return { error: `path entry "${entry}" is not a compound clip in scene ${sceneId}` };
 		sceneId = hit.element.sceneId;
 	}
@@ -101,7 +152,8 @@ const isMatch = (value: unknown): value is AgentMatch =>
 /**
  * Finds one element. `{agentId}` / `{id}` search every scene reachable from the root and fail when
  * the element is in more than one scene; `sceneId` or `path` (compound ids from the root) narrows
- * the search to one scene. `id` wins over `agentId` when both are given.
+ * the search to one scene. When both are given, `id` is searched in every candidate scene first and
+ * `agentId` is only tried if no element has that id.
  */
 export function resolveMatch(scenes: TScene[], rootSceneId: string, match: unknown): { hit: ElementHit } | { error: string } {
 	if (!isMatch(match) || !((typeof match.id === "string" && match.id) || (typeof match.agentId === "string" && match.agentId))) {
@@ -119,13 +171,12 @@ export function resolveMatch(scenes: TScene[], rootSceneId: string, match: unkno
 		if (!scenes.some((scene) => scene.id === explicitScene)) return { error: `scene not found: ${explicitScene}` };
 		sceneIds = [explicitScene];
 	} else {
-		sceneIds = [...getScenePaths(scenes, rootSceneId).keys()];
+		sceneIds = getReachableScenes(scenes, rootSceneId).map((scene) => scene.id);
 	}
-	const hits = sceneIds.flatMap((sceneId) => {
-		const scene = scenes.find((s) => s.id === sceneId);
-		const hit = scene ? findInScene(scene, match) : null;
-		return hit ? [hit] : [];
-	});
+	const candidates = sceneIds.flatMap((sceneId) => scenes.filter((s) => s.id === sceneId));
+	const search = (test: (element: TimelineElement) => boolean) => candidates.flatMap((scene) => findInScene(scene, test) ?? []);
+	let hits = match.id ? search((element) => element.id === match.id) : [];
+	if (hits.length === 0 && match.agentId) hits = search((element) => element.agentId === match.agentId);
 	if (hits.length === 0) return { error: "item not found (it may have been deleted in the editor)" };
 	if (hits.length > 1) {
 		return { error: `ambiguous match: found in scenes ${hits.map((hit) => hit.sceneId).join(", ")}; add sceneId or path` };
@@ -148,36 +199,33 @@ export function resolveCompoundTarget(scenes: TScene[], rootSceneId: string, tar
 	return { sceneId: resolved.hit.element.sceneId };
 }
 
-export function addressOf(scenes: TScene[], rootSceneId: string, sceneId: string, elementId: string): ElementAddress {
+/** Address of an element; pass `paths` (getScenePaths) when resolving many addresses against the same scenes. */
+export function addressOf(scenes: TScene[], rootSceneId: string, sceneId: string, elementId: string, paths = getScenePaths(scenes, rootSceneId)): ElementAddress {
 	const scene = scenes.find((s) => s.id === sceneId);
 	const track = scene ? orderedTracks(scene.tracks).find((t) => t.elements.some((e) => e.id === elementId)) : undefined;
 	const element = track?.elements.find((e) => e.id === elementId);
 	return {
 		sceneId, trackId: track?.id ?? null, id: elementId, agentId: element?.agentId ?? null,
-		path: getScenePaths(scenes, rootSceneId).get(sceneId) ?? null,
+		path: paths.get(sceneId) ?? null,
 	};
 }
 
 /**
  * Element refs to select in the open scene for changed elements: the element itself when it is in
- * that scene, otherwise the outermost compound clip in that scene that contains it.
+ * that scene, otherwise the first compound clip in that scene that contains it (at any depth).
  */
-export function selectionInScene(scenes: TScene[], rootSceneId: string, activeSceneId: string, touched: { sceneId: string; elementId: string }[]): ElementRef[] {
+export function selectionInScene(scenes: TScene[], activeSceneId: string, touched: { sceneId: string; elementId: string }[]): ElementRef[] {
 	const active = scenes.find((scene) => scene.id === activeSceneId);
 	if (!active) return [];
-	const instances = walkSceneInstances(scenes, rootSceneId);
 	const refs = new Map<string, ElementRef>();
-	const add = (elementId: string) => {
-		const track = orderedTracks(active.tracks).find((t) => t.elements.some((e) => e.id === elementId));
-		if (track) refs.set(`${track.id}\u0000${elementId}`, { trackId: track.id, elementId });
-	};
+	const add = (trackId: string, elementId: string) => refs.set(`${trackId}\u0000${elementId}`, { trackId, elementId });
+	const tracks = orderedTracks(active.tracks);
 	for (const { sceneId, elementId } of touched) {
-		if (sceneId === activeSceneId) { add(elementId); continue; }
-		for (const instance of instances) {
-			if (instance.sceneId !== sceneId) continue;
-			const hostOf = (k: number) => (k === 0 ? rootSceneId : instance.chain[k - 1].sceneId);
-			const k = instance.chain.findIndex((_, i) => hostOf(i) === activeSceneId);
-			if (k >= 0) { add(instance.chain[k].id); break; }
+		for (const track of tracks) {
+			const element = track.elements.find((e) => sceneId === activeSceneId
+				? e.id === elementId
+				: isCompoundElement(e) && sceneReachesScene({ scenes, fromSceneId: e.sceneId, targetSceneId: sceneId }));
+			if (element) { add(track.id, element.id); break; }
 		}
 	}
 	return [...refs.values()];

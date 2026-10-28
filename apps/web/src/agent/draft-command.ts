@@ -7,7 +7,10 @@ type SceneChange = { sceneId: string; before: TScene | null; after: TScene | nul
 /**
  * One undo step for a whole agent draft: every scene it changed, created, or removed (root
  * timeline, compound clip contents) is restored together. The selection of changed items is
- * part of the result, so redo selects them again.
+ * part of the result, so redo selects them again. Each direction opens its own scene through the
+ * scenes manager's transition (playhead, selection): undo the scene that was open when the draft
+ * ran, redo the scene that was open after it (the root when the draft removed the open scene,
+ * e.g. by ungrouping the compound being edited).
  */
 export class AgentDraftCommand extends Command {
 	// Ripple was already applied per op while the draft was computed.
@@ -15,9 +18,14 @@ export class AgentDraftCommand extends Command {
 	private readonly changes: SceneChange[];
 	private readonly selection: ElementRef[];
 	private readonly wrap: (action: () => void) => void;
+	private readonly open: { before: string | null; after: string | null };
 
-	constructor({ before, after, selection, wrap = (action) => action() }: {
-		before: TScene[]; after: TScene[]; selection: ElementRef[]; wrap?: (action: () => void) => void;
+	constructor({ before, after, selection, openBefore = null, openAfter = openBefore, wrap = (action) => action() }: {
+		before: TScene[]; after: TScene[];
+		/** Refs in `openAfter`, the scene open once the draft is applied. */
+		selection: ElementRef[];
+		openBefore?: string | null; openAfter?: string | null;
+		wrap?: (action: () => void) => void;
 	}) {
 		super();
 		const old = new Map(before.map((scene) => [scene.id, scene]));
@@ -27,7 +35,14 @@ export class AgentDraftCommand extends Command {
 			...before.filter((scene) => !next.has(scene.id)).map((scene) => ({ sceneId: scene.id, before: scene, after: null })),
 		];
 		this.selection = selection;
+		this.open = { before: openBefore, after: openAfter };
 		this.wrap = wrap;
+	}
+
+	/** Undo brings back the scenes the draft removed, redo the ones it created. */
+	override restoresScene({ sceneId, direction }: { sceneId: string; direction: "undo" | "redo" }): boolean {
+		const side = direction === "undo" ? "before" : "after";
+		return this.changes.some((change) => change.sceneId === sceneId && change[side] !== null);
 	}
 
 	getChangedSceneIds(): string[] {
@@ -67,7 +82,9 @@ export class AgentDraftCommand extends Command {
 				const scene = change[side];
 				return scene && !current.some((s) => s.id === change.sceneId) ? [scene] : [];
 			});
-			editor.scenes.setScenes({ scenes: [...kept, ...restored] });
+			const scenes = [...kept, ...restored];
+			const open = this.open[side];
+			editor.scenes.setScenes({ scenes, activeSceneId: open && scenes.some((scene) => scene.id === open) ? open : undefined });
 			const active = editor.scenes.getActiveSceneOrNull();
 			if (active) editor.timeline.updateTracks(active.tracks);
 		});

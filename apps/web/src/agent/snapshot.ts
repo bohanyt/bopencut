@@ -5,7 +5,7 @@ import { calculateTotalDuration } from "@/timeline";
 import { isCompoundElement } from "@/timeline/compound";
 import { TICKS_PER_SECOND } from "@/wasm";
 import type { EditItem } from "./edit-log";
-import { type SceneInstance, toRootInterval, walkSceneInstances } from "./scene-graph";
+import { getSceneInstances, toRootInterval } from "./scene-graph";
 
 /** Ticks → seconds (3 decimals); other values pass through. */
 export const s = (ticks: unknown) => (typeof ticks === "number" ? Math.round((ticks / TICKS_PER_SECOND) * 1000) / 1000 : ticks);
@@ -19,16 +19,10 @@ export function animationSeconds(value: any): any {
 
 const offsetOf = (chain: CompoundElement[]) => chain.reduce((sum, clip) => sum + clip.startTime - clip.trimStart, 0);
 
-function instancesByScene(scenes: TScene[], rootSceneId: string): Map<string, SceneInstance[]> {
-	const byScene = new Map<string, SceneInstance[]>();
-	for (const instance of walkSceneInstances(scenes, rootSceneId)) byScene.set(instance.sceneId, [...(byScene.get(instance.sceneId) ?? []), instance]);
-	return byScene;
-}
-
 export function buildSceneSnapshot({ scenes, rootSceneId, mediaName }: { scenes: TScene[]; rootSceneId: string; mediaName: Map<string, string> }) {
-	const byScene = instancesByScene(scenes, rootSceneId);
+	const byScene = getSceneInstances(scenes, rootSceneId);
 	const element = (e: TimelineElement, sceneId: string) => {
-		const own = byScene.get(sceneId) ?? [];
+		const { instances: own = [], truncated = false } = byScene.get(sceneId) ?? {};
 		const x = e as any;
 		return {
 			id: e.id, agentId: e.agentId ?? null, type: e.type, name: e.name, media: x.mediaId ? mediaName.get(x.mediaId) ?? null : null,
@@ -40,6 +34,8 @@ export function buildSceneSnapshot({ scenes, rootSceneId, mediaName }: { scenes:
 				const interval = toRootInterval(e.startTime, e.startTime + e.duration, instance.chain);
 				return interval ? [{ start: sec(interval[0]), end: sec(interval[1]), path: instance.path }] : [];
 			}),
+			// Only the first MAX_INSTANCES_PER_SCENE paths of a shared scene are listed.
+			...(truncated ? { truncated: true } : {}),
 			...(isCompoundElement(e) ? { compound: { sceneId: e.sceneId, kind: "compound", volume: typeof e.params.volume === "number" ? e.params.volume : 0, muted: e.params.muted === true, sourceDuration: sec(e.sourceDuration ?? 0) } } : {}),
 		};
 	};
@@ -53,11 +49,11 @@ export function buildSceneSnapshot({ scenes, rootSceneId, mediaName }: { scenes:
 		...scene.tracks.audio.map((track, i) => lane(track, "audio", i, scene.id)),
 	];
 	const root = scenes.find((scene) => scene.id === rootSceneId);
-	const compounds = [...byScene.entries()].filter(([sceneId]) => sceneId !== rootSceneId).flatMap(([sceneId, instances]) => {
+	const compounds = [...byScene.entries()].filter(([sceneId]) => sceneId !== rootSceneId).flatMap(([sceneId, { instances, truncated }]) => {
 		const scene = scenes.find((s) => s.id === sceneId);
-		if (!scene) return [];
+		if (!scene || !instances[0]) return [];
 		return [{
-			sceneId, name: scene.name, kind: scene.kind ?? null, duration: sec(calculateTotalDuration({ tracks: scene.tracks })), path: instances[0].path,
+			sceneId, name: scene.name, kind: scene.kind ?? null, duration: sec(calculateTotalDuration({ tracks: scene.tracks })), path: instances[0].path, truncated,
 			// Each clip that shows this content: root time = nested time + offset, inside `visible`.
 			instances: instances.map((instance) => {
 				const clip = instance.chain[instance.chain.length - 1];
@@ -70,17 +66,31 @@ export function buildSceneSnapshot({ scenes, rootSceneId, mediaName }: { scenes:
 	return { sceneId: rootSceneId, tracks: root ? lanes(root) : [], compounds };
 }
 
-/** Flat list of every element under the root (each scene once) for the human edit log. */
+/**
+ * Flat list of every element under the root (each scene once) for the human edit log, with the
+ * element's root-time span through its first path, so moving it between scenes can be told apart
+ * from retiming it.
+ */
 export function buildEditItems({ scenes, rootSceneId, mediaName }: { scenes: TScene[]; rootSceneId: string; mediaName: Map<string, string> }): EditItem[] {
-	const byScene = instancesByScene(scenes, rootSceneId);
-	return [...byScene.entries()].flatMap(([sceneId, instances]) => {
+	const items: EditItem[] = [];
+	for (const [sceneId, { instances }] of getSceneInstances(scenes, rootSceneId, 1)) {
 		const scene = scenes.find((s) => s.id === sceneId);
-		if (!scene) return [];
-		return [...scene.tracks.overlay, scene.tracks.main, ...scene.tracks.audio].flatMap((track) => track.elements.map((e: TimelineElement) => ({
-			id: e.id, agentId: e.agentId ?? null, name: e.name, media: mediaName.get((e as any).mediaId) ?? null, type: e.type, track: track.name,
-			sceneId, path: instances[0].path,
-			startTime: sec(e.startTime), duration: sec(e.duration), trimStart: sec(e.trimStart), trimEnd: sec(e.trimEnd),
-			params: structuredClone(e.params ?? {}), animations: animationSeconds(e.animations ?? {}),
-		})));
-	});
+		const first = instances[0];
+		if (!scene || !first) continue;
+		const offset = offsetOf(first.chain);
+		for (const track of [...scene.tracks.overlay, scene.tracks.main, ...scene.tracks.audio]) {
+			for (const e of track.elements as TimelineElement[]) {
+				const end = e.startTime + e.duration;
+				const visible = toRootInterval(e.startTime, end, first.chain);
+				items.push({
+					id: e.id, agentId: e.agentId ?? null, name: e.name, media: mediaName.get((e as any).mediaId) ?? null, type: e.type, track: track.name,
+					sceneId, path: first.path, ...(isCompoundElement(e) ? { contentSceneId: e.sceneId } : {}),
+					startTime: sec(e.startTime), duration: sec(e.duration), trimStart: sec(e.trimStart), trimEnd: sec(e.trimEnd),
+					rootStart: sec(visible ? visible[0] : e.startTime + offset), rootEnd: sec(visible ? visible[1] : end + offset),
+					params: structuredClone(e.params ?? {}), animations: animationSeconds(e.animations ?? {}),
+				});
+			}
+		}
+	}
+	return items;
 }
