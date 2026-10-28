@@ -109,33 +109,44 @@ export class ScenesManager {
 			throw new Error("Scene not found");
 		}
 
-		const previousId = this.active?.id ?? null;
-		if (previousId && previousId !== sceneId) {
-			this.playheads.set(previousId, this.editor.playback.getCurrentTime());
-		}
-
-		const activeProject = this.editor.project.getActive();
-
-		if (activeProject) {
-			const updatedProject = {
-				...activeProject,
-				currentSceneId: sceneId,
-				metadata: {
-					...activeProject.metadata,
-					updatedAt: new Date(),
-				},
-			};
-
-			this.editor.project.setActiveProject({ project: updatedProject });
-		}
-
-		this.active = targetScene;
+		this.enterScene(targetScene);
 		this.notify();
-		if (previousId !== sceneId) {
-			// Selection refs belong to the scene that was open.
-			this.editor.selection.clearSelection();
-			this.editor.playback.seek({
-				time: this.playheads.get(sceneId) ?? ZERO_MEDIA_TIME,
+	}
+
+	/**
+	 * The one way the open scene changes, for explicit switches and scene-list changes alike
+	 * (e.g. deleting the open scene or undoing that). It remembers the outgoing playhead, pauses
+	 * playback (switching is an edit-side jump, so playback stops cleanly at the restored
+	 * playhead), clears the selection, publishes the destination together with its own restored
+	 * playhead, and records it as the project's current scene. Callers notify afterwards, so
+	 * duration reconciliation only sees the destination's playhead against its own duration.
+	 */
+	private enterScene(target: TScene | null): void {
+		const previous = this.active;
+		if (!target || previous?.id === target.id) {
+			this.active = target;
+			return;
+		}
+
+		const { playback, selection, project } = this.editor;
+		if (previous) {
+			this.playheads.set(previous.id, playback.getCurrentTime());
+		}
+		if (playback.getIsPlaying()) {
+			playback.pause();
+		}
+		this.active = target;
+		selection.clearSelection();
+		playback.seek({ time: this.playheads.get(target.id) ?? ZERO_MEDIA_TIME });
+
+		const activeProject = project.getActiveOrNull();
+		if (activeProject) {
+			project.setActiveProject({
+				project: {
+					...activeProject,
+					currentSceneId: target.id,
+					metadata: { ...activeProject.metadata, updatedAt: new Date() },
+				},
 			});
 		}
 	}
@@ -299,9 +310,11 @@ export class ScenesManager {
 		scenes = this.normalize(scenes);
 		this.list = scenes;
 		const nextActiveSceneId = activeSceneId ?? this.active?.id ?? null;
-		this.active = nextActiveSceneId
-			? (scenes.find((scene) => scene.id === nextActiveSceneId) ?? null)
-			: null;
+		// If the open scene is gone, the main scene opens instead.
+		const nextActive =
+			(nextActiveSceneId ? scenes.find((scene) => scene.id === nextActiveSceneId) : undefined) ??
+			(this.active ? getMainScene({ scenes }) : null);
+		this.enterScene(nextActive);
 		this.notify();
 
 		const activeProject = this.editor.project.getActive();

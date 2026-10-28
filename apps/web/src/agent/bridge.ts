@@ -261,6 +261,8 @@ export async function applyDraft(draft: Draft) {
 	}
 	const batch = new BatchCommand(commands);
 	const command = new class extends Command {
+		// The batch ripples per child; rippling the whole draft again would shift clips twice.
+		override readonly ripples = false;
 		execute() { let result: ReturnType<BatchCommand["execute"]>; editLogger ? editLogger.agent(() => { result = batch.execute(); }) : (result = batch.execute()); return result!; }
 		undo() { editLogger ? editLogger.agent(() => batch.undo()) : batch.undo(); }
 		redo() { let result: ReturnType<BatchCommand["redo"]>; editLogger ? editLogger.agent(() => { result = batch.redo(); }) : (result = batch.redo()); return result!; }

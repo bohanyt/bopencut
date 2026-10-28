@@ -15,6 +15,7 @@ mock.module("@/services/renderer/gpu-renderer", () => ({
 const { EditorCore } = await import("@/core");
 const { BatchCommand } = await import("@/commands");
 const { RemoveMediaAssetCommand } = await import("@/commands/media");
+const { applyDraft } = await import("@/agent/bridge");
 const { CreateCompoundCommand, DeleteElementsCommand, InsertElementCommand } = await import(
 	"@/commands/timeline"
 );
@@ -214,5 +215,120 @@ describe("commands that remove clips", () => {
 		});
 		expect(startOf("neighbour")).toBe(t(10));
 		expect(startOf("after-bg")).toBe(t(0));
+	});
+
+	test("an agent draft ripples once on apply, undo and redo", async () => {
+		const run = async (clips: [string, number][], expected: [string, number][]) => {
+			const scenes = fixture();
+			const host = getHost(scenes);
+			const textTrack = host.tracks.overlay.find((track) => track.id === "t-text");
+			if (!textTrack || textTrack.type !== "text") throw new Error("fixture");
+			const template = textTrack.elements[0] as TextElement;
+			textTrack.elements = clips.map(([id, start]) => ({ ...template, id, startTime: t(start), duration: t(2) }));
+			const editor = setup(scenes);
+			editor.command.isRippleEnabled = true;
+			const startsOf = () =>
+				Object.fromEntries(
+					(editor.scenes.getActiveScene().tracks.overlay.find((track) => track.id === "t-text")?.elements ?? []).map(
+						(e) => [e.id, e.startTime],
+					),
+				);
+			const original = startsOf();
+
+			await applyDraft({ schema: "opencut-agent-draft-1", rev: "r", label: "r", ops: [{ op: "delete", match: { id: "A" } }] });
+			expect(startsOf()).toEqual(Object.fromEntries(expected.map(([id, start]) => [id, t(start)])));
+			editor.command.undo();
+			expect(startsOf()).toEqual(original);
+			editor.command.redo();
+			expect(startsOf()).toEqual(Object.fromEntries(expected.map(([id, start]) => [id, t(start)])));
+		};
+		await run(
+			[
+				["A", 0],
+				["B", 8],
+			],
+			[["B", 6]],
+		);
+		await run(
+			[
+				["A", 0],
+				["B", 2],
+				["C", 4],
+				["D", 10],
+			],
+			[
+				["B", 0],
+				["C", 2],
+				["D", 8],
+			],
+		);
+	});
+});
+
+describe("scene transitions", () => {
+	async function sceneWithTitle(editor: ReturnType<typeof setup>) {
+		const sceneId = await editor.scenes.createScene({ name: "A", isMain: false });
+		await editor.scenes.switchToScene({ sceneId });
+		const insert = new InsertElementCommand({
+			element: {
+				type: "text",
+				name: "four seconds",
+				startTime: t(0),
+				duration: t(4),
+				trimStart: t(0),
+				trimEnd: t(0),
+				params: { content: "four seconds" },
+			},
+			placement: { mode: "auto" },
+		});
+		editor.command.execute({ command: insert });
+		return { sceneId, title: { trackId: insert.getTrackId() ?? "", elementId: insert.getElementId() } };
+	}
+
+	test("deleting the open scene and undoing it go through the same transition as a switch", async () => {
+		const editor = setup();
+		await editor.scenes.switchToScene({ sceneId: "main" });
+		const { sceneId, title: titleRef } = await sceneWithTitle(editor);
+		await editor.scenes.switchToScene({ sceneId: "main" });
+		editor.playback.seek({ time: t(8) });
+		await editor.scenes.switchToScene({ sceneId });
+		editor.playback.seek({ time: t(2) });
+		editor.selection.setSelectedElements({ elements: [titleRef] });
+
+		await editor.scenes.deleteScene({ sceneId });
+		expect(editor.scenes.getActiveScene().id).toBe("main");
+		expect(editor.playback.getCurrentTime()).toBe(t(8));
+		expect(editor.selection.getSelectedElements()).toEqual([]);
+		expect(editor.project.getActive().currentSceneId).toBe("main");
+
+		editor.playback.seek({ time: t(9) });
+		editor.command.undo();
+		expect(editor.scenes.getActiveScene().id).toBe(sceneId);
+		expect(editor.playback.getCurrentTime()).toBe(t(2));
+		expect(editor.project.getActive().currentSceneId).toBe(sceneId);
+		await editor.scenes.switchToScene({ sceneId: "main" });
+		expect(editor.playback.getCurrentTime()).toBe(t(9));
+	});
+
+	test("a cross-scene undo while playing pauses at the restored playhead, never at a clamped time", async () => {
+		const editor = setup();
+		const { sceneId } = editor.timeline.createCompound({ elements: refs }); // nested scene is 4 s
+		await editor.scenes.switchToScene({ sceneId });
+		editor.playback.seek({ time: t(2) });
+		editor.command.execute({ command: title("nested", 0) });
+		await editor.scenes.switchToScene({ sceneId: "main" }); // main is 10 s
+		editor.playback.seek({ time: t(8) });
+		// Playing state without the frame clock (the clock is not under test).
+		(editor.playback as unknown as { isPlaying: boolean }).isPlaying = true;
+		expect(editor.playback.getIsPlaying()).toBe(true);
+
+		const seeks: number[] = [];
+		const stop = editor.playback.onSeek((time) => seeks.push(time));
+		editor.command.undo();
+		stop();
+		expect(editor.scenes.getActiveScene().id).toBe(sceneId);
+		expect(editor.playback.getCurrentTime()).toBe(t(2));
+		expect(editor.playback.getIsPlaying()).toBe(false);
+		expect(seeks).toEqual([t(2)]);
 	});
 });
