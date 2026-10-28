@@ -35,6 +35,10 @@ import {
 	GraphicNode,
 	type ResolvedGraphicNodeState,
 } from "./nodes/graphic-node";
+import { Model3dNode } from "./nodes/model3d-node";
+import { renderModel3d } from "@/model3d/render";
+import { model3dParams } from "@/params/registry";
+import { resolveAnimationPathValueAtTime } from "@/animation";
 import { ImageNode, loadImageSource } from "./nodes/image-node";
 import { StickerNode, loadStickerSource } from "./nodes/sticker-node";
 import { TextNode, type ResolvedTextNodeState } from "./nodes/text-node";
@@ -77,6 +81,8 @@ async function resolveNode({
 }): Promise<void> {
 	if (node instanceof VideoNode) {
 		node.resolved = await resolveVideoNode({ node, context });
+	} else if (node instanceof Model3dNode) {
+		node.resolved = await resolveModel3dNode({ node, context });
 	} else if (node instanceof ImageNode) {
 		node.resolved = await resolveImageNode({ node, context });
 	} else if (node instanceof StickerNode) {
@@ -227,6 +233,21 @@ async function resolveVideoNode({
 		sourceWidth: frame.canvas.width,
 		sourceHeight: frame.canvas.height,
 	};
+}
+
+// Model 3D dirender 1024 px supaya tetap tajam saat dibesarkan hampir layar penuh.
+const MODEL3D_SOURCE_SIZE = 1024;
+
+async function resolveModel3dNode({ node, context }: { node: Model3dNode; context: ResolveContext }): Promise<ResolvedVisualSourceNodeState | null> {
+	const size = MODEL3D_SOURCE_SIZE;
+	const visualState = resolveVisualState({ params: node.params, context, sourceWidth: size, sourceHeight: size });
+	if (!visualState) return null;
+	const params = { ...node.params.params };
+	for (const definition of model3dParams) {
+		params[definition.key] = resolveAnimationPathValueAtTime({ animations: node.params.animations, propertyPath: definition.key, localTime: visualState.localTime, fallbackValue: params[definition.key] ?? definition.default });
+	}
+	const source = await renderModel3d({ id: node.params.mediaId, file: node.params.file, params, size });
+	return { ...visualState, source, sourceWidth: size, sourceHeight: size };
 }
 
 async function resolveImageNode({

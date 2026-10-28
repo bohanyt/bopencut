@@ -11,12 +11,16 @@ export function mediaSupportsAudio({
 	return SUPPORTS_AUDIO.includes(media.type);
 }
 
+export const isModelFile = (file: File): boolean => /\.(glb|gltf)$/i.test(file.name);
+
 export const getMediaTypeFromFile = ({
 	file,
 }: {
 	file: File;
 }): MediaType | null => {
 	const { type } = file;
+
+	if (isModelFile(file)) return "image";
 
 	if (type.startsWith("image/")) {
 		return "image";

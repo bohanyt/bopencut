@@ -2,6 +2,8 @@ import type { SceneTracks, TimelineTrack } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import { RootNode } from "./nodes/root-node";
 import { VideoNode } from "./nodes/video-node";
+import { Model3dNode } from "./nodes/model3d-node";
+import { isModelFile } from "@/media/media-utils";
 import { ImageNode } from "./nodes/image-node";
 import { TextNode } from "./nodes/text-node";
 import { StickerNode } from "./nodes/sticker-node";
@@ -85,7 +87,17 @@ function buildTrackNodes({
 						}),
 					);
 				}
-				if (element.type === "image" && mediaAsset.type === "image") {
+				if (element.type === "image" && mediaAsset.type === "image" && isModelFile(mediaAsset.file)) {
+					nodes.push(new Model3dNode({
+						mediaId: mediaAsset.id, file: mediaAsset.file, params: element.params,
+						duration: element.duration, timeOffset: element.startTime,
+						trimStart: element.trimStart, trimEnd: element.trimEnd,
+						transform: buildTransformFromParams({ params: element.params }),
+						animations: element.animations, opacity: readOpacityFromParams({ params: element.params }),
+						blendMode: readBlendModeFromParams({ params: element.params }),
+						effects: element.effects ?? [], masks: element.masks ?? [],
+					}));
+				} else if (element.type === "image" && mediaAsset.type === "image") {
 					nodes.push(
 						new ImageNode({
 							url: mediaAsset.url,

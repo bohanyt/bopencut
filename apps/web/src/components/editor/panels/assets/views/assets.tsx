@@ -30,6 +30,7 @@ import { mediaTimeFromSeconds, type MediaTime } from "@/wasm";
 import { useEditor } from "@/editor/use-editor";
 import { useFileUpload } from "@/media/use-file-upload";
 import { invokeAction } from "@/actions";
+import { isModelFile } from "@/media/media-utils";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
 import {
@@ -117,7 +118,7 @@ export function MediaView() {
 
 	const { isDragOver, dragProps, openFilePicker, fileInputProps } =
 		useFileUpload({
-			accept: "image/*,video/*,audio/*",
+			accept: "image/*,video/*,audio/*,.glb,.gltf",
 			multiple: true,
 			onFilesSelected: (files) => processFiles({ files }),
 		});
@@ -447,7 +448,7 @@ function MediaPreview({
 		return (
 			<div className="relative flex size-full items-center justify-center bg-muted">
 				<Image
-					src={item.url ?? ""}
+					src={(isModelFile(item.file) ? item.thumbnailUrl : item.url) ?? ""}
 					alt={item.name}
 					fill
 					sizes="100vw"

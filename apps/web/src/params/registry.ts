@@ -154,6 +154,19 @@ const visualElementParams: ElementParamDefinition[] = [
 	},
 ];
 
+export const model3dParams: ElementParamDefinition[] = [
+	{ key: "rotationX", label: "Rotation X", type: "number", default: 0, min: -3600, max: 3600, step: 1 },
+	{ key: "rotationY", label: "Rotation Y", type: "number", default: 0, min: -3600, max: 3600, step: 1 },
+	{ key: "rotationZ", label: "Rotation Z", type: "number", default: 0, min: -3600, max: 3600, step: 1 },
+	{ key: "modelScale", label: "Model scale", type: "number", default: 1, min: 0.01, max: 10, step: 0.01 },
+	{ key: "cameraDistance", label: "Camera distance", type: "number", default: 3.5, min: 0.1, max: 50, step: 0.1 },
+	{ key: "cameraFov", label: "Camera FOV", type: "number", default: 45, min: 5, max: 150, step: 1 },
+	{ key: "lightIntensity", label: "Light intensity", type: "number", default: 2, min: 0, max: 10, step: 0.1 },
+	{ key: "lightX", label: "Light X", type: "number", default: 3, min: -20, max: 20, step: 0.1 },
+	{ key: "lightY", label: "Light Y", type: "number", default: 4, min: -20, max: 20, step: 0.1 },
+	{ key: "lightZ", label: "Light Z", type: "number", default: 5, min: -20, max: 20, step: 0.1 },
+];
+
 const audioElementParams: ElementParamDefinition[] = [
 	{
 		key: "volume",
@@ -335,7 +348,7 @@ elementParamRegistry.register({
 	key: "video",
 	definition: [...visualElementParams, ...audioElementParams],
 });
-elementParamRegistry.register({ key: "image", definition: visualElementParams });
+elementParamRegistry.register({ key: "image", definition: [...visualElementParams, ...model3dParams] });
 elementParamRegistry.register({
 	key: "text",
 	definition: [...textElementParams, ...visualElementParams],

@@ -17,6 +17,8 @@ export interface StorageAdapter<T> {
 export interface MediaAssetData {
 	id: string;
 	name: string;
+	fileName?: string;
+	fileType?: string;
 	type: MediaType;
 	size: number;
 	lastModified: number;

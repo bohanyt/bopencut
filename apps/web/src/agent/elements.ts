@@ -5,10 +5,10 @@ import { buildElementFromMedia, buildEffectElement } from "@/timeline/element-ut
 import { mediaTimeFromSeconds } from "@/wasm";
 import { generateUUID } from "@/utils/id";
 
-export type AgentAsset = { path: string; type: "image" | "video" | "audio"; name: string };
+export type AgentAsset = { path: string; type: "image" | "video" | "audio" | "model"; name: string };
 export type AgentElement = {
 	agent_id?: string; name: string; start: number; duration: number; trimStart?: number;
-	asset?: string | AgentAsset; effect?: string; effectParams?: Record<string, number>;
+	asset?: string | AgentAsset; model3d?: { params?: Record<string, number> }; effect?: string; effectParams?: Record<string, number>;
 	params?: Record<string, number>; size?: [number, number];
 	keyframes?: { path: string; time: number; value: number }[];
 };
@@ -28,7 +28,7 @@ export async function loadAgentAsset({ projectId, asset }: { projectId: string; 
 	if (!processed) throw new Error("Aset gagal diproses: " + asset.path);
 	const saved = await editor.media.addMediaAsset({ projectId, asset: { ...processed, name: asset.name } });
 	if (!saved) throw new Error("Aset gagal disimpan: " + asset.path);
-	return { id: saved.id, type: processed.type as AgentAsset["type"], width: processed.width, height: processed.height, duration: processed.duration };
+	return { id: saved.id, type: asset.type === "model" ? "model" : processed.type as AgentAsset["type"], width: processed.width, height: processed.height, duration: processed.duration };
 }
 
 /** Bangun elemen OpenCut. Keyframe dikumpulkan ke `keyframes` (waktu dalam detik, relatif elemen). */
@@ -41,8 +41,10 @@ export function buildAgentElement({ e, media, trackId, canvas, keyframes }: {
 		el.params = { ...el.params, ...(e.effectParams ?? {}) };
 		return el;
 	}
+	if (e.model3d && media?.type !== "model") throw new Error("Aset model tidak ada untuk " + e.name);
 	if (!media) throw new Error("Aset tidak ada untuk " + e.name);
-	const el: any = { ...buildElementFromMedia({ mediaId: media.id, mediaType: media.type, name: e.name, duration: secs(e.duration), startTime: secs(e.start) }), id: generateUUID(), agentId: e.agent_id };
+	const el: any = { ...buildElementFromMedia({ mediaId: media.id, mediaType: media.type === "model" ? "image" : media.type, name: e.name, duration: secs(e.duration), startTime: secs(e.start) }), id: generateUUID(), agentId: e.agent_id };
+	if (e.model3d) Object.assign(el.params, e.model3d.params ?? {});
 	const trimStart = e.trimStart ?? 0;
 	if (media.type !== "image" && media.duration) {
 		el.sourceDuration = secs(media.duration);
