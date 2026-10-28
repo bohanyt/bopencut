@@ -1,4 +1,5 @@
 import { PasteCommand } from "@/commands/timeline";
+import { collectCompoundScenes } from "@/timeline/compound";
 import type { ClipboardHandler } from "../types";
 
 export const ElementsClipboardHandler = {
@@ -32,6 +33,10 @@ export const ElementsClipboardHandler = {
 		return {
 			type: "elements",
 			items,
+			scenes: collectCompoundScenes({
+				scenes: editor.scenes.getScenes(),
+				elements: results.map(({ element }) => element),
+			}),
 		};
 	},
 
@@ -43,6 +48,7 @@ export const ElementsClipboardHandler = {
 		return new PasteCommand({
 			time: context.time,
 			clipboardItems: entry.items,
+			scenes: entry.scenes,
 		});
 	},
 } satisfies ClipboardHandler<"elements">;

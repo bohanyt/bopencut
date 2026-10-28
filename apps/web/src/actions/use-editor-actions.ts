@@ -18,7 +18,6 @@ import {
 import { useKeyframeSelection } from "@/timeline/hooks/element/use-keyframe-selection";
 import { getElementsAtTime, hasMediaId } from "@/timeline";
 import { cancelInteraction } from "@/editor/cancel-interaction";
-import { invokeAction } from "@/actions";
 import { canToggleSourceAudio } from "@/timeline/audio-separation";
 import {
 	activateScope,
@@ -26,6 +25,8 @@ import {
 	type ScopeEntry,
 } from "@/selection/scope";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
+import { isCompoundElement } from "@/timeline/compound";
+import { toast } from "sonner";
 
 export function useEditorActions() {
 	const editor = useEditor();
@@ -394,9 +395,10 @@ export function useEditorActions() {
 	useActionHandler(
 		"cancel-interaction",
 		() => {
-			if (!cancelInteraction()) {
-				invokeAction("deselect-all");
-			}
+			if (cancelInteraction()) return;
+			// Esc clears the selection first; with nothing left to clear it leaves a compound clip.
+			if (clearActiveScope() || editor.selection.clearMostSpecificSelection()) return;
+			editor.scenes.exitCompound();
 		},
 		undefined,
 	);
@@ -407,6 +409,45 @@ export function useEditorActions() {
 			if (!clearActiveScope()) {
 				editor.selection.clearMostSpecificSelection();
 			}
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"create-compound",
+		() => {
+			if (selectedElements.length === 0) return;
+			try {
+				editor.timeline.createCompound({ elements: selectedElements });
+			} catch (error) {
+				toast.error(
+					error instanceof Error ? error.message : "Could not create compound clip",
+				);
+			}
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"break-apart-compound",
+		() => {
+			const compounds = editor.timeline
+				.getElementsWithTracks({ elements: selectedElements })
+				.filter(({ element }) => isCompoundElement(element));
+			if (compounds.length !== 1) {
+				if (compounds.length > 1) toast.error("Select one compound clip to break apart");
+				return;
+			}
+			const [{ track, element }] = compounds;
+			editor.timeline.ungroupCompound({ trackId: track.id, elementId: element.id });
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"exit-compound",
+		() => {
+			editor.scenes.exitCompound();
 		},
 		undefined,
 	);

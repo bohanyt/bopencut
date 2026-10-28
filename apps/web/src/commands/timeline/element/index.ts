@@ -5,7 +5,11 @@ export { SplitElementsCommand } from "./split-elements";
 export { UpdateElementsCommand } from "./update-elements";
 export { ToggleSourceAudioSeparationCommand } from "./toggle-source-audio-separation";
 export { MoveElementCommand } from "./move-elements";
-export { CreateCompoundCommand, UngroupCompoundCommand } from "./compound";
+export {
+	CreateCompoundCommand,
+	RenameCompoundCommand,
+	UngroupCompoundCommand,
+} from "./compound";
 
 export * from "./keyframes";
 export * from "./effects";

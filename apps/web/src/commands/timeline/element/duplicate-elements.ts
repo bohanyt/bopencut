@@ -3,12 +3,17 @@ import {
 	createElementSelectionResult,
 	type CommandResult,
 } from "@/commands/base-command";
-import type { SceneTracks, TimelineElement } from "@/timeline";
+import type { SceneTracks, TScene, TimelineElement } from "@/timeline";
 import { generateUUID } from "@/utils/id";
 import { EditorCore } from "@/core";
 import { applyPlacement, resolveTrackPlacement } from "@/timeline/placement";
 import { cloneAnimations } from "@/animation";
 import type { MediaTime } from "@/wasm";
+import { applyCopiedScenes, removeCopiedScenes } from "./copied-scenes";
+import {
+	collectCompoundScenes,
+	deepCopyCompoundElements,
+} from "@/timeline/compound";
 
 interface DuplicateElementsParams {
 	elements: { trackId: string; elementId: string }[];
@@ -17,6 +22,8 @@ interface DuplicateElementsParams {
 export class DuplicateElementsCommand extends Command {
 	private duplicatedElements: { trackId: string; elementId: string }[] = [];
 	private savedState: SceneTracks | null = null;
+	/** First result, replayed on redo so element, track, and nested scene ids stay the same. */
+	private result: { tracks: SceneTracks; scenes: TScene[] } | null = null;
 	private elements: DuplicateElementsParams["elements"];
 
 	constructor({ elements }: DuplicateElementsParams) {
@@ -27,41 +34,52 @@ export class DuplicateElementsCommand extends Command {
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
 		this.savedState = editor.scenes.getActiveScene().tracks;
+		if (this.result) {
+			applyCopiedScenes({ ...this.result });
+			return this.duplicatedElements.length > 0
+				? createElementSelectionResult(this.duplicatedElements)
+				: undefined;
+		}
 		this.duplicatedElements = [];
 
-		let updatedTracks = this.savedState;
-
-		for (const track of [
+		const tracks = [
 			...this.savedState.overlay,
 			this.savedState.main,
 			...this.savedState.audio,
-		]) {
-			const elementsToDuplicate = this.elements.filter(
-				(elementEntry) => elementEntry.trackId === track.id,
-			);
+		];
+		const selected = new Set(
+			this.elements.map(({ trackId, elementId }) => `${trackId}\u0000${elementId}`),
+		);
+		const sources = tracks.flatMap((track) =>
+			track.elements.filter((element) => selected.has(`${track.id}\u0000${element.id}`)),
+		);
+		// Duplicated compound clips get their own copy of their nested scenes (one copy pass, so
+		// clips that shared a scene still share its copy).
+		const deepCopy = deepCopyCompoundElements({
+			elements: sources.map((element) =>
+				buildDuplicateElement({
+					element,
+					id: generateUUID(),
+					startTime: element.startTime,
+				}),
+			),
+			sourceScenes: editor.scenes.getScenes(),
+		});
+		const duplicateOf = new Map(
+			sources.map((element, index) => [element, deepCopy.elements[index]]),
+		);
+		const placed: TimelineElement[] = [];
 
-			if (elementsToDuplicate.length === 0) {
+		let updatedTracks = this.savedState;
+
+		for (const track of tracks) {
+			const newTrackElements = track.elements.flatMap((element) => {
+				const duplicate = duplicateOf.get(element);
+				return duplicate ? [duplicate] : [];
+			});
+
+			if (newTrackElements.length === 0) {
 				continue;
-			}
-
-			const elementIdsToDuplicate = new Set(
-				elementsToDuplicate.map((element) => element.elementId),
-			);
-			const newTrackElements: TimelineElement[] = [];
-
-			for (const element of track.elements) {
-				if (!elementIdsToDuplicate.has(element.id)) {
-					continue;
-				}
-
-				const newId = generateUUID();
-				newTrackElements.push(
-					buildDuplicateElement({
-						element,
-						id: newId,
-						startTime: element.startTime,
-					}),
-				);
 			}
 
 			const placementResult = resolveTrackPlacement({
@@ -84,6 +102,7 @@ export class DuplicateElementsCommand extends Command {
 			}
 
 			updatedTracks = applied.updatedTracks;
+			placed.push(...newTrackElements);
 
 			for (const element of newTrackElements) {
 				this.duplicatedElements.push({
@@ -93,7 +112,12 @@ export class DuplicateElementsCommand extends Command {
 			}
 		}
 
-		editor.timeline.updateTracks(updatedTracks);
+		const copiedScenes = collectCompoundScenes({
+			scenes: deepCopy.scenes,
+			elements: placed,
+		});
+		this.result = { tracks: updatedTracks, scenes: copiedScenes };
+		applyCopiedScenes({ ...this.result });
 
 		if (this.duplicatedElements.length > 0) {
 			return createElementSelectionResult(this.duplicatedElements);
@@ -103,8 +127,10 @@ export class DuplicateElementsCommand extends Command {
 
 	undo(): void {
 		if (this.savedState) {
-			const editor = EditorCore.getInstance();
-			editor.timeline.updateTracks(this.savedState);
+			removeCopiedScenes({
+				tracks: this.savedState,
+				scenes: this.result?.scenes ?? [],
+			});
 		}
 	}
 

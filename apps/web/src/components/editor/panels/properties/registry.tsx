@@ -22,8 +22,10 @@ import {
 	MusicNote03Icon,
 	MagicWand05Icon,
 	DashboardSpeed02Icon,
+	Layers01Icon,
 } from "@hugeicons/core-free-icons";
 import { ElementParamsTab } from "./components/element-params-tab";
+import { CompoundTab } from "./components/compound-tab";
 import { ClipEffectsTab, StandaloneEffectTab } from "@/effects/components/effects-tab";
 import { MasksTab } from "@/masks/components/masks-tab";
 import { SpeedTab } from "@/speed/components/speed-tab";
@@ -333,15 +335,21 @@ function getEffectConfig({
 	};
 }
 
-// Compound clip: transform + blending like video, plus nested audio volume in the audio tab.
+// Compound clip: name and actions, transform + blending like video, nested audio volume/mute.
 function getCompoundConfig({
 	element,
 }: {
 	element: CompoundElement;
 }): ElementPropertiesConfig {
 	return {
-		defaultTab: "transform",
+		defaultTab: "compound",
 		tabs: [
+			{
+				id: "compound",
+				label: "Compound clip",
+				icon: <HugeiconsIcon icon={Layers01Icon} size={16} />,
+				content: ({ trackId }) => <CompoundTab element={element} trackId={trackId} />,
+			},
 			buildTransformTab({ element }),
 			buildAudioTab({ element }),
 			buildBlendingTab({ element }),

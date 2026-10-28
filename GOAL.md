@@ -48,7 +48,7 @@ A stage is complete when its **Done when** criteria are met and tested directly 
 | 7 | **Script → generic draft:** draft format from script + voice-over independent of a specific project | 1 | Planned | A new script becomes a draft in the editor without project-specific code |
 | 8 | **Ready for local AI:** one-command install, prompt for footage folder and create `.env.local`, and start server; step-by-step video-editing agent playbook; generic agent CLI (status / draft / frames / notes / preferences); apply drafts server-side to disk projects without an open browser; script → draft with stage 7 | 1, 3, 4 | Planned | A fresh clone, one command, and a local AI pointed at `AGENTS.md` produce a first draft from a script and footage folder |
 | — | **Preview quality:** Full / ½ / ¼ | 2 | Done (#8) | Preview quality is selectable without reducing export or agent frame quality |
-| — | **Compound clips:** many layers as one clip referencing a nested scene; double-click to edit inside | 1, 2, 3 | In progress: A foundation done (data model, rendering, audio, create/ungroup commands); B timeline UI and C agent path planned | Foundation, timeline UI, and agent path are complete |
+| — | **Compound clips:** many layers as one clip referencing a nested scene; double-click to edit inside | 1, 2, 3 | In progress: A foundation done (data model, rendering, audio, create/ungroup commands); B timeline UI done (create/break apart shortcuts and menu, double-click to enter, breadcrumb, thumbnails, rename, deep-copy duplicate/paste); C agent path planned | Foundation, timeline UI, and agent path are complete |
 
 ## Later
 

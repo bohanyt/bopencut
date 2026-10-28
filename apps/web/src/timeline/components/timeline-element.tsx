@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 import { useEditor } from "@/editor/use-editor";
 import { useAssetsPanelStore } from "@/components/editor/panels/assets/assets-panel-store";
 import { AudioWaveform, WAVEFORM_GAIN_SAMPLE_COUNT } from "./audio-waveform";
@@ -23,7 +23,18 @@ import {
 	timelineTimeToSnappedPixels,
 } from "@/timeline";
 import { getTrackHeight } from "./track-layout";
-import { getTimelineElementClassName, TIMELINE_TRACK_THEME } from "./theme";
+import {
+	getTimelineElementClassName,
+	TIMELINE_COMPOUND_THEME,
+	TIMELINE_TRACK_THEME,
+} from "./theme";
+import { isCompoundElement } from "@/timeline/compound";
+import {
+	COMPOUND_THUMBNAIL_COUNT,
+	getCompoundThumbnailCache,
+	getCompoundThumbnailKey,
+	renderCompoundThumbnails,
+} from "@/timeline/compound-thumbnails";
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -39,6 +50,7 @@ import type {
 	VideoElement,
 	ImageElement,
 	AudioElement,
+	CompoundElement,
 } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import { mediaSupportsAudio } from "@/media/media-utils";
@@ -74,6 +86,10 @@ import {
 	Exchange01Icon,
 	KeyframeIcon,
 	MagicWand05Icon,
+	Layers01Icon,
+	LayerAddIcon,
+	Unlink01Icon,
+	FolderOpenIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { uppercase } from "@/utils/string";
@@ -229,6 +245,7 @@ export function TimelineElement({
 	dragView,
 	isDropTarget = false,
 }: TimelineElementProps) {
+	const editor = useEditor();
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const { selectedElements } = useElementSelection();
 	const requestRevealMedia = useAssetsPanelStore((s) => s.requestRevealMedia);
@@ -424,6 +441,31 @@ export function TimelineElement({
 					</div>
 				</ContextMenuTrigger>
 				<ContextMenuContent className="w-64">
+					{isCompoundElement(element) && (
+						<>
+							<ContextMenuItem
+								icon={<HugeiconsIcon icon={FolderOpenIcon} />}
+								onClick={(event: React.MouseEvent) => {
+									event.stopPropagation();
+									void editor.scenes.enterCompound({
+										trackId: track.id,
+										elementId: element.id,
+									});
+								}}
+							>
+								Open compound clip
+							</ContextMenuItem>
+							{selectedElements.length === 1 && (
+								<ActionMenuItem
+									action="break-apart-compound"
+									icon={<HugeiconsIcon icon={Unlink01Icon} />}
+								>
+									Break apart
+								</ActionMenuItem>
+							)}
+							<ContextMenuSeparator />
+						</>
+					)}
 					<ActionMenuItem
 						action="split"
 						icon={<HugeiconsIcon icon={ScissorIcon} />}
@@ -437,6 +479,14 @@ export function TimelineElement({
 							icon={<HugeiconsIcon icon={Copy01Icon} />}
 						>
 							Duplicate
+						</ActionMenuItem>
+					)}
+					{isCurrentElementSelected && (
+						<ActionMenuItem
+							action="create-compound"
+							icon={<HugeiconsIcon icon={LayerAddIcon} />}
+						>
+							Create compound clip
 						</ActionMenuItem>
 					)}
 					{canElementHaveAudio(element) && hasAudio && (
@@ -548,6 +598,7 @@ function ElementInner({
 	}) => void;
 	isDropTarget?: boolean;
 }) {
+	const editor = useEditor();
 	const visibleElement = displayElement ?? element;
 	const isReducedOpacity =
 		(canElementBeHidden(visibleElement) && visibleElement.hidden) ||
@@ -582,13 +633,26 @@ function ElementInner({
 						className="absolute inset-0 size-full flex flex-col"
 						onClick={(event) => onElementClick({ event, element })}
 						onMouseDown={(event) => onElementMouseDown({ event, element })}
+						onDoubleClick={
+							isCompoundElement(element)
+								? (event) => {
+										event.stopPropagation();
+										void editor.scenes.enterCompound({
+											trackId: track.id,
+											elementId: element.id,
+										});
+									}
+								: undefined
+						}
 					>
 						<div
 							className={cn(
 								"flex shrink-0 items-center overflow-hidden",
-								getTimelineElementClassName({
-									type: track.type,
-								}),
+								isCompoundElement(element)
+									? TIMELINE_COMPOUND_THEME.elementClassName
+									: getTimelineElementClassName({
+											type: track.type,
+										}),
 								isReducedOpacity && "opacity-50",
 							)}
 							style={{ height: `${baseTrackHeight}px` }}
@@ -1177,7 +1241,121 @@ function ElementContent({ element, track }: ElementContentProps) {
 		case "video":
 		case "image":
 			return <TiledMediaContent element={element} track={track} />;
+		case "compound":
+			return <CompoundElementContent element={element} track={track} />;
 	}
+}
+
+function CompoundElementContent({
+	element,
+	track,
+}: {
+	element: CompoundElement;
+	track: TimelineTrack;
+}) {
+	return (
+		<div className="relative size-full">
+			{track.type === "audio" ? (
+				<CompoundAudioLanes element={element} />
+			) : (
+				<CompoundThumbnailStrip element={element} />
+			)}
+			<div
+				className="pointer-events-none absolute inset-x-0 top-0 h-0.5"
+				style={{ backgroundColor: TIMELINE_COMPOUND_THEME.accentColor }}
+			/>
+			<div
+				className="pointer-events-none absolute top-1 left-1 flex max-w-[calc(100%-0.5rem)] items-center gap-1 rounded-sm px-1 py-px text-black"
+				style={{ backgroundColor: TIMELINE_COMPOUND_THEME.accentColor }}
+			>
+				<HugeiconsIcon icon={Layers01Icon} size={10} className="shrink-0" />
+				<span className="truncate text-[0.6rem] leading-tight font-medium">
+					{element.name}
+				</span>
+			</div>
+		</div>
+	);
+}
+
+/** Audio-only compound: its nested clips as bars, one row per nested track. */
+function CompoundAudioLanes({ element }: { element: CompoundElement }) {
+	const nested = useEditor((e) =>
+		e.scenes.getScenes().find((scene) => scene.id === element.sceneId),
+	);
+	if (!nested || element.duration <= 0) return null;
+	const rows = [
+		...nested.tracks.overlay,
+		nested.tracks.main,
+		...nested.tracks.audio,
+	].filter((nestedTrack) => nestedTrack.elements.length > 0);
+	const windowEnd = element.trimStart + element.duration;
+	const toPercent = (time: number) => `${(time / element.duration) * 100}%`;
+	return (
+		<div className="pointer-events-none absolute inset-x-0 top-5 bottom-1 flex flex-col justify-center gap-0.5">
+			{rows.map((row) => (
+				<div key={row.id} className="relative max-h-2 min-h-0 flex-1">
+					{row.elements.map((nestedElement) => {
+						const start = Math.max(nestedElement.startTime, element.trimStart);
+						const end = Math.min(
+							nestedElement.startTime + nestedElement.duration,
+							windowEnd,
+						);
+						if (end <= start) return null;
+						return (
+							<div
+								key={nestedElement.id}
+								className="absolute inset-y-0 rounded-[1px] bg-white/55"
+								style={{
+									left: toPercent(start - element.trimStart),
+									width: toPercent(end - start),
+								}}
+							/>
+						);
+					})}
+				</div>
+			))}
+		</div>
+	);
+}
+
+/** Cached low-res frames of the nested content, rendered off the playback path. */
+function CompoundThumbnailStrip({ element }: { element: CompoundElement }) {
+	const editor = useEditor();
+	const scenes = useEditor((e) => e.scenes.getScenes());
+	const mediaAssets = useEditor((e) => e.media.getAssets());
+	const canvasSize = useEditor((e) => e.project.getActive().settings.canvasSize);
+	const cache = getCompoundThumbnailCache({ editor });
+	const key = useMemo(
+		() => getCompoundThumbnailKey({ scenes, element, canvasSize, mediaAssets }),
+		[scenes, element, canvasSize, mediaAssets],
+	);
+	const frames = useSyncExternalStore(
+		(listener) => cache.subscribe(listener),
+		() => cache.get(key),
+		() => undefined,
+	);
+
+	useEffect(() => {
+		if (cache.get(key)) return;
+		cache.request(key, () => renderCompoundThumbnails({ editor, element }));
+		return () => cache.cancel(key);
+	}, [cache, key, editor, element]);
+
+	const slots = Array.from({ length: COMPOUND_THUMBNAIL_COUNT }, (_, slot) => ({
+		slot,
+		frame: frames?.[slot],
+	}));
+	return (
+		<div className="pointer-events-none absolute inset-0 flex">
+			{slots.map(({ slot, frame }) => (
+				<div
+					key={slot}
+					className="h-full min-w-0 flex-1 bg-cover bg-center"
+					style={frame ? { backgroundImage: `url(${frame})` } : undefined}
+				/>
+			))}
+		</div>
+	);
 }
 
 function CopyMenuItem() {

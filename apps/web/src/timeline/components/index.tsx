@@ -68,6 +68,7 @@ import {
 } from "./expanded-layout";
 import { TIMELINE_HORIZONTAL_WHEEL_STEP_PX } from "./interaction";
 import { TimelineToolbar } from "./timeline-toolbar";
+import { CompoundBreadcrumb } from "./compound-breadcrumb";
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
 import { useTimelineSeek } from "@/timeline/hooks/use-timeline-seek";
 import { useTimelineDragDrop } from "@/timeline/hooks/use-timeline-drag-drop";
@@ -441,6 +442,7 @@ export function Timeline() {
 				minZoom={minZoomLevel}
 				setZoomLevel={({ zoom }) => setZoomLevel(zoom)}
 			/>
+			<CompoundBreadcrumb />
 
 			<div className="relative flex flex-1 overflow-hidden" ref={timelineRef}>
 				<TrackLabelsPanel

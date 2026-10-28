@@ -25,8 +25,15 @@ import { type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
 import {
 	assertTracksAcyclic,
 	relocateVisualCompounds,
+	isCompoundElement,
 	syncCompoundDurations,
 } from "@/timeline/compound";
+import {
+	type CompoundCrumb,
+	getCompoundParentSceneId,
+	getCompoundPath,
+	getNestedTimeAtParentTime,
+} from "@/timeline/compound-navigation";
 
 /** Tracks of another scene that the scenes manager changed itself while a command ran. */
 export interface DerivedSceneChange {
@@ -42,6 +49,8 @@ export class ScenesManager {
 	private derivedLog: Map<string, { before: SceneTracks; after: SceneTracks }> | null = null;
 	/** Last playhead of each scene, restored when the editor switches back to it. */
 	private playheads = new Map<string, MediaTime>();
+	/** Compound scene id -> scene it was last entered from (breadcrumb and Esc go back there). */
+	private compoundParents = new Map<string, string>();
 
 	constructor(private editor: EditorCore) {}
 
@@ -111,6 +120,59 @@ export class ScenesManager {
 
 		this.enterScene(targetScene);
 		this.notify();
+	}
+
+	/**
+	 * Opens a compound clip of the open scene (timeline double-click). The playhead lands on the
+	 * same frame inside when it was over the clip; otherwise the nested scene's own last playhead.
+	 */
+	async enterCompound({
+		trackId,
+		elementId,
+	}: {
+		trackId: string;
+		elementId: string;
+	}): Promise<void> {
+		const host = this.getActiveScene();
+		const element = [...host.tracks.overlay, host.tracks.main, ...host.tracks.audio]
+			.find((track) => track.id === trackId)
+			?.elements.find((candidate) => candidate.id === elementId);
+		if (!element || !isCompoundElement(element)) {
+			throw new Error("Compound clip not found");
+		}
+		const nestedTime = getNestedTimeAtParentTime({
+			element,
+			parentTime: this.editor.playback.getCurrentTime(),
+		});
+		this.compoundParents.set(element.sceneId, host.id);
+		await this.switchToScene({ sceneId: element.sceneId });
+		if (nestedTime !== null) {
+			this.editor.playback.seek({ time: nestedTime });
+		}
+	}
+
+	/** Goes back to the scene the open compound was entered from. False when not inside one. */
+	exitCompound(): boolean {
+		const active = this.active;
+		if (!active) return false;
+		const parentId = getCompoundParentSceneId({
+			scenes: this.list,
+			sceneId: active.id,
+			hint: this.compoundParents.get(active.id),
+		});
+		if (!parentId) return false;
+		void this.switchToScene({ sceneId: parentId });
+		return true;
+	}
+
+	/** Breadcrumb of the open scene: root user scene first, open scene last. */
+	getCompoundPath(): CompoundCrumb[] {
+		if (!this.active) return [];
+		return getCompoundPath({
+			scenes: this.list,
+			sceneId: this.active.id,
+			parentHints: this.compoundParents,
+		});
 	}
 
 	/**

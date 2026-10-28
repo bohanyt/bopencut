@@ -10,6 +10,7 @@ import type { Command } from "@/commands/base-command";
 import type {
 	CreateTimelineElement,
 	ElementRef,
+	TScene,
 	TrackType,
 } from "@/timeline";
 import type { MediaTime } from "@/wasm";
@@ -36,6 +37,8 @@ export interface KeyframeClipboardItem {
 export interface ElementsClipboardEntry {
 	type: "elements";
 	items: ElementClipboardItem[];
+	/** Nested scenes of copied compound clips as they were at copy time; paste deep-copies them. */
+	scenes: TScene[];
 }
 
 export interface KeyframesClipboardEntry {
