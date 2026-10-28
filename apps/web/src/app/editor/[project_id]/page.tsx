@@ -16,7 +16,6 @@ import { Onboarding } from "@/components/editor/onboarding";
 import { MigrationDialog } from "@/project/components/migration-dialog";
 import { usePanelStore } from "@/editor/panel-store";
 import { usePasteMedia } from "@/media/use-paste-media";
-import { MobileGate } from "@/components/editor/mobile-gate";
 import { useEffect, useMemo, useState } from "react";
 import { installAgentBridge } from "@/agent/bridge";
 import { useEditor } from "@/editor/use-editor";
@@ -42,7 +41,6 @@ export default function Editor() {
 	useEffect(() => installAgentBridge(), []);
 
 	return (
-		<MobileGate>
 			<EditorProvider projectId={projectId}>
 				<div className="bg-background flex h-screen w-screen flex-col overflow-hidden">
 					<DegradedRendererBanner />
@@ -55,7 +53,6 @@ export default function Editor() {
 					<ChangelogNotification />
 				</div>
 			</EditorProvider>
-		</MobileGate>
 	);
 }
 

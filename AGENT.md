@@ -7,14 +7,15 @@
 bun install
 cd apps/web && bunx next dev --turbopack -H 127.0.0.1 -p 3000
 ```
-Tanpa akun/DB. Proyek tersimpan di browser (IndexedDB/OPFS).
+Tanpa akun/DB. Proyek dan media tersimpan di `<repo>/workspace/projects/<projectId>/`: `project.json`, `media/<mediaId>.<ext>`, dan metadata media. Folder `workspace/` diabaikan Git. Proyek browser lama disalin otomatis beserta medianya saat pertama dibuka; salinan browser tidak dihapus. Penghapusan proyek disk tidak memicu penyalinan ulang.
 
 ## Folder kerja agen (`apps/web/.env.local`)
 ```
+BOPENCUT_DATA=C:\path\ke\folder-data         # default: <repo>/workspace
 AGENT_WORKSPACE=C:\path\ke\folder-kerja     # default: <repo>/workspace
 AGENT_FILES_ROOT=C:\path\ke\akar-aset        # default: = AGENT_WORKSPACE
 ```
-Satu folder kerja per pekerjaan; ganti env lalu restart server untuk pindah proyek.
+BOPENCUT_DATA dapat menunjuk folder di luar repo; jangan memasukkan data pribadi ke Git. Satu folder kerja per pekerjaan; ganti env lalu restart server untuk pindah proyek.
 
 | File di AGENT_WORKSPACE | Arah | Isi |
 |---|---|---|

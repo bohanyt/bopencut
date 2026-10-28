@@ -18,12 +18,7 @@ import { DEFAULT_FPS } from "@/fps/defaults";
 import { buildDefaultScene, getProjectDurationFromScenes } from "@/timeline/scenes";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
-import {
-	CURRENT_PROJECT_VERSION,
-	migrations,
-	runStorageMigrations,
-	type MigrationProgress,
-} from "@/services/storage/migrations";
+import { CURRENT_PROJECT_VERSION } from "@/services/storage/migrations";
 import { loadFonts } from "@/fonts/google-fonts";
 import { DEFAULTS } from "@/timeline/defaults";
 import { getElementFontFamilies } from "@/timeline/element-utils";
@@ -66,15 +61,7 @@ export class ProjectManager {
 			return;
 		}
 
-		this.storageMigrationPromise = (async () => {
-			await runStorageMigrations({
-				migrations,
-				onProgress: (progress: MigrationProgress) => {
-					this.migrationState = progress;
-					this.notify();
-				},
-			});
-		})();
+		this.storageMigrationPromise = storageService.ensureMigrations();
 
 		await this.storageMigrationPromise;
 	}
@@ -206,6 +193,7 @@ export class ProjectManager {
 			this.updateMetadata(updatedProject);
 		} catch (error) {
 			console.error("Failed to save project:", error);
+			toast.error("Proyek gagal disimpan", { description: error instanceof Error ? error.message : undefined });
 		}
 	}
 

@@ -37,6 +37,7 @@ Setiap tahap dianggap selesai kalau **kriteria "selesai kalau"** terpenuhi dan d
 
 | # | Tahap | Langkah yang terbantu | Selesai kalau |
 |---|---|---|---|
+| ? | **Penyimpanan di folder** | 1, 2, 3, 4 | ? Proyek dan media tersimpan di folder lokal, terbuka di browser lain, dan proyek browser lama tersalin dengan aman |
 | 0 | Jembatan agen: impor draf, sinkron timeline, draf set/add/delete | 1, 3 | ✅ AI menambah, mengubah, dan menghapus item di proyek yang terbuka; satu Undo membatalkan semuanya |
 | 1 | **Catatan di timeline + AI melihat frame** | 3 | Manusia menandai rentang waktu/item dengan catatan; AI membaca catatan itu dan bisa mengambil gambar frame mana pun |
 | 1b | **Log editan + catatan selera** | 4 → 1 | Editan manusia pada item AI tercatat di `edits/<projectId>.jsonl`; AI menulis aturan selera dari pola berulang, dan draf berikutnya sudah memakai aturan itu |
