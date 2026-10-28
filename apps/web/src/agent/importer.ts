@@ -7,11 +7,13 @@ import type { AudioTrack, OverlayTrack, SceneTracks, TScene, VideoTrack } from "
 import { relocateVisualCompounds, syncCompoundDurations } from "@/timeline/compound";
 import { loadIcon } from "@/stickers/providers/iconify";
 import { generateUUID } from "@/utils/id";
+import { floatToFrameRate } from "@/fps/utils";
 import { type AgentAsset, type AgentElement, type LoadedMedia, buildAgentElement, createAgentTrack, loadAgentAsset } from "./elements";
 import { type BuildContext, applyAgentKeyframes, buildAgentCompound, walkAgentElements } from "./compound-content";
 
 export type Bundle = {
-	name: string; width: number; height: number;
+	/** Frame rate of the project (default 30); imported media never change it. */
+	name: string; width: number; height: number; fps?: number;
 	assets: (AgentAsset & { key: string })[];
 	main: AgentElement[]; audio: AgentElement[];
 	overlay: { name: string; type: "video" | "effect" | "graphic" | "text"; elements: AgentElement[] }[];
@@ -50,6 +52,7 @@ export async function importAgentBundle({ onStatus }: { onStatus: (text: string)
 	const editor = EditorCore.getInstance();
 	const bundle: Bundle = await (await fetch("/api/agent/bundle", { cache: "no-store" })).json();
 	const projectId = await editor.project.createNewProject({ name: bundle.name });
+	if (typeof bundle.fps === "number" && bundle.fps > 0) await editor.project.updateSettings({ settings: { fps: floatToFrameRate(bundle.fps) }, pushHistory: false });
 	const media = new Map<string, LoadedMedia>();
 
 	let done = 0;

@@ -8,6 +8,7 @@ import path from "node:path";
 import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { atomicWrite } from "@/services/storage/server/files";
 
 const run = promisify(execFile);
 const WORKSPACE = path.resolve(process.env.AGENT_WORKSPACE ?? path.join(process.cwd(), "..", "..", "workspace"));
@@ -21,11 +22,8 @@ function inside(rel: string) {
 	return full;
 }
 
-async function writeAtomic(file: string, text: string) {
-	await fs.mkdir(path.dirname(file), { recursive: true });
-	await fs.writeFile(file + ".tmp", text);
-	await fs.rename(file + ".tmp", file);
-}
+// Unique temp file, rename retried on transient Windows locks, writes to one file queued.
+const writeAtomic = atomicWrite;
 
 export async function GET(req: Request, { params }: { params: Promise<{ slug: string[] }> }) {
 	const { slug } = await params;

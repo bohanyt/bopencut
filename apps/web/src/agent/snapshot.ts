@@ -25,7 +25,7 @@ export function buildSceneSnapshot({ scenes, rootSceneId, mediaName }: { scenes:
 		const { instances: own = [], truncated = false } = byScene.get(sceneId) ?? {};
 		const x = e as any;
 		return {
-			id: e.id, agentId: e.agentId ?? null, type: e.type, name: e.name, media: x.mediaId ? mediaName.get(x.mediaId) ?? null : null,
+			id: e.id, agentId: e.agentId ?? null, type: e.type, name: e.name, media: x.mediaId ? mediaName.get(x.mediaId) ?? null : null, mediaId: x.mediaId ?? null,
 			start: sec(e.startTime), duration: sec(e.duration), end: sec(e.startTime + e.duration), trimStart: sec(e.trimStart), trimEnd: sec(e.trimEnd),
 			effectType: x.effectType ?? null, graphic: x.definitionId ? { definitionId: x.definitionId } : null, icon: x.definitionId === "icon" ? { name: e.params.iconName, color: e.params.color } : null, groupId: e.groupId ?? null, params: e.params, hasKeyframes: !!e.animations && Object.keys(e.animations).length > 0,
 			sceneId, path: own[0]?.path ?? null,

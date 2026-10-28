@@ -57,6 +57,12 @@ class StorageService {
 	private savedSoundsAdapter = new DiskSoundsAdapter<SavedSoundsData>();
 	private config: StorageConfig;
 	private migrationsPromise: Promise<void> | null = null;
+	/**
+	 * Media metadata lists by project, kept from the last full load and updated by this service's
+	 * own saves and deletes, so reading one asset does not refetch the whole list (it can be tens of
+	 * MB with thumbnails).
+	 */
+	private manifests = new Map<string, Map<string, MediaAssetData>>();
 
 	constructor() {
 		this.config = {
@@ -354,6 +360,7 @@ class StorageService {
 		};
 
 		await this.projectsAdapter.saveMedia(projectId, metadata, mediaAsset.file);
+		this.manifests.get(projectId)?.set(metadata.id, metadata);
 	}
 
 	async loadMediaAsset({
@@ -363,21 +370,29 @@ class StorageService {
 		projectId: string;
 		id: string;
 	}): Promise<MediaAsset | null> {
-		const metadata = (await this.projectsAdapter.mediaList(projectId)).find((item) => item.id === id);
+		const metadata = this.manifests.get(projectId)?.get(id) ?? (await this.fetchManifest({ projectId })).get(id);
 		if (!metadata) return null;
 		return this.readMediaAsset({ projectId, metadata });
+	}
+
+	private async fetchManifest({ projectId }: { projectId: string }): Promise<Map<string, MediaAssetData>> {
+		const manifest = new Map((await this.projectsAdapter.mediaList(projectId)).map((item) => [item.id, item] as const));
+		this.manifests.set(projectId, manifest);
+		return manifest;
 	}
 
 	private async readMediaAsset({
 		projectId,
 		metadata,
+		signal,
 	}: {
 		projectId: string;
 		metadata: MediaAssetData;
+		signal?: AbortSignal;
 	}): Promise<MediaAsset> {
 		const id = metadata.id;
 		const url = this.projectsAdapter.mediaUrl(projectId, id);
-		const response = await fetch(url);
+		const response = await fetch(url, { signal });
 		if (!response.ok) throw new Error(`Media ${id} cannot be read`);
 		const blob = await response.blob();
 		const file = new File([blob], metadata.fileName ?? metadata.name, { type: metadata.fileType ?? blob.type, lastModified: metadata.lastModified });
@@ -398,26 +413,33 @@ class StorageService {
 		};
 	}
 
-	/** Loads every media asset: the metadata list is fetched once and files are read with bounded concurrency. */
+	/**
+	 * Loads every media asset: the metadata list is fetched once (and cached) and files are read with
+	 * bounded concurrency. Aborting `signal` stops starting new reads and rejects.
+	 */
 	async loadAllMediaAssets({
 		projectId,
 		concurrency = 8,
 		onProgress,
+		signal,
 	}: {
 		projectId: string;
 		concurrency?: number;
 		onProgress?: (progress: { loaded: number; total: number }) => void;
+		signal?: AbortSignal;
 	}): Promise<MediaAsset[]> {
-		const list = await this.projectsAdapter.mediaList(projectId);
+		const list = [...(await this.fetchManifest({ projectId })).values()];
 		const items: (MediaAsset | null)[] = new Array(list.length).fill(null);
 		let next = 0;
 		let loaded = 0;
 		const worker = async () => {
 			while (next < list.length) {
+				signal?.throwIfAborted();
 				const index = next++;
 				try {
-					items[index] = await this.readMediaAsset({ projectId, metadata: list[index] });
+					items[index] = await this.readMediaAsset({ projectId, metadata: list[index], signal });
 				} catch (error) {
+					if (signal?.aborted) throw error;
 					console.error(`Failed to load media ${list[index].id}:`, error);
 				}
 				loaded++;
@@ -425,6 +447,7 @@ class StorageService {
 			}
 		};
 		await Promise.all(Array.from({ length: Math.min(Math.max(1, concurrency), list.length) }, worker));
+		signal?.throwIfAborted();
 		return items.filter((item): item is MediaAsset => item !== null);
 	}
 
@@ -436,6 +459,7 @@ class StorageService {
 		id: string;
 	}): Promise<void> {
 		await this.projectsAdapter.removeMedia(projectId, id);
+		this.manifests.get(projectId)?.delete(id);
 	}
 
 	async deleteProjectMedia({
@@ -444,6 +468,7 @@ class StorageService {
 		projectId: string;
 	}): Promise<void> {
 		await this.projectsAdapter.removeProjectMedia(projectId);
+		this.manifests.delete(projectId);
 	}
 
 	async clearAllData(): Promise<void> {

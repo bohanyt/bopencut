@@ -1,7 +1,7 @@
 // Compound clips built from agent definitions (draft `compound` op, `add` with `element.compound`,
 // bundle elements with `compound`). The nested scene's tracks are built like a draft `add`, so
 // every part stays a normal, editable element; times inside are relative to the clip's content.
-import type { CompoundElement, SceneTracks, TScene } from "@/timeline";
+import type { CompoundElement, SceneTracks, TScene, TimelineElement } from "@/timeline";
 import { calculateTotalDuration, updateElementInSceneTracks } from "@/timeline";
 import { buildDefaultScene } from "@/timeline/scenes";
 import { getNextCompoundName, sceneHasVisualContent } from "@/timeline/compound";
@@ -67,7 +67,8 @@ export function placeAgentElement({ tracks, sceneId, e, ref, ctx }: {
 	} else {
 		type = ref.type ?? inferTrackType(e, ctx.mediaFor(e));
 	}
-	let track: any = findTrackByName(orderedTracks(tracks), ref.name, type);
+	// A track id (replace keeps the element's own track) wins when the type fits.
+	let track: any = (ref.id ? orderedTracks(tracks).find((t) => t.id === ref.id && t.type === type) : undefined) ?? findTrackByName(orderedTracks(tracks), ref.name, type);
 	const isNew = !track;
 	// A compound's own audio plays only on an unmuted track.
 	if (isNew) track = createAgentTrack(type, ref.name, { muted: !e.compound });
@@ -123,7 +124,7 @@ export function buildAgentCompound({ e, hostSceneId, ctx }: { e: AgentElement; h
 	} as CompoundElement;
 	for (const k of e.keyframes ?? []) {
 		const paths = k.path === "scale" ? ["transform.scaleX", "transform.scaleY"] : [k.path];
-		for (const propertyPath of paths) ctx.keyframes.push({ sceneId: hostSceneId, trackId: "", elementId: element.id, propertyPath, time: k.time, value: k.value });
+		for (const propertyPath of paths) ctx.keyframes.push({ sceneId: hostSceneId, trackId: "", elementId: element.id, propertyPath, time: k.time, interpolation: k.interpolation, value: k.value });
 	}
 	return element;
 }
@@ -140,21 +141,30 @@ export function applyAgentKeyframes({ scenes, keyframes, defaultSceneId }: { sce
 			if (!track) continue;
 			tracks = updateElementInSceneTracks({
 				tracks, trackId: track.id, elementId: k.elementId,
-				update: (element) => {
-					const target = resolveAnimationTarget({ element, path: k.propertyPath });
-					if (!target) return element;
-					const time = maxMediaTime({ a: ZERO_MEDIA_TIME, b: minMediaTime({ a: secs(k.time), b: element.duration }) });
-					return {
-						...element,
-						animations: upsertPathKeyframe({
-							animations: element.animations, propertyPath: k.propertyPath, time, value: k.value, interpolation: "linear",
-							channelLayout: target.channelLayout, coerceValue: target.coerceValue,
-						}),
-					};
-				},
+				update: (element) => upsertAgentKeyframe(element, k),
 			});
 		}
 		return { ...scene, tracks };
 	});
+}
+
+/**
+ * Adds one keyframe to an element (time in seconds relative to it, clamped to its span; an existing
+ * key at that time takes the new value). Throws for a path the element cannot animate.
+ */
+export function upsertAgentKeyframe<T extends TimelineElement>(element: T, k: Pick<PendingKeyframe, "propertyPath" | "time" | "value" | "interpolation">, { strict = false } = {}): T {
+	const target = resolveAnimationTarget({ element, path: k.propertyPath });
+	if (!target) {
+		if (strict) throw new Error(`cannot animate ${k.propertyPath} on ${element.type} ${element.name}`);
+		return element;
+	}
+	const time = maxMediaTime({ a: ZERO_MEDIA_TIME, b: minMediaTime({ a: secs(k.time), b: element.duration }) });
+	return {
+		...element,
+		animations: upsertPathKeyframe({
+			animations: element.animations, propertyPath: k.propertyPath, time, value: k.value, interpolation: k.interpolation ?? "linear",
+			channelLayout: target.channelLayout, coerceValue: target.coerceValue,
+		}),
+	};
 }
 

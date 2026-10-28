@@ -22,7 +22,7 @@ import { CURRENT_PROJECT_VERSION } from "@/services/storage/migrations";
 import { loadFonts } from "@/fonts/google-fonts";
 import { DEFAULTS } from "@/timeline/defaults";
 import { getElementFontFamilies } from "@/timeline/element-utils";
-import { getRaisedProjectFpsForImportedMedia } from "@/fps/utils";
+import { frameRateToFloat, getRaisedProjectFpsForImportedMedia } from "@/fps/utils";
 import type { MediaAsset } from "@/media/types";
 
 export interface MigrationState {
@@ -96,6 +96,7 @@ export class ProjectManager {
 		this.notify();
 
 		this.editor.media.clearAllAssets();
+		this.editor.media.markProjectMediaLoaded({ projectId: newProject.metadata.id });
 		this.editor.scenes.initializeScenes({
 			scenes: newProject.scenes,
 			currentSceneId: newProject.currentSceneId,
@@ -173,8 +174,9 @@ export class ProjectManager {
 		}
 	}
 
-	async saveCurrentProject(): Promise<void> {
-		if (!this.active) return;
+	/** Writes the active project to storage; false when it failed (a toast reports it). */
+	async saveCurrentProject(): Promise<boolean> {
+		if (!this.active) return false;
 
 		try {
 			const scenes = this.editor.scenes.getScenes();
@@ -191,9 +193,11 @@ export class ProjectManager {
 			await storageService.saveProject({ project: updatedProject });
 			this.active = updatedProject;
 			this.updateMetadata(updatedProject);
+			return true;
 		} catch (error) {
 			console.error("Failed to save project:", error);
 			toast.error("Failed to save project", { description: error instanceof Error ? error.message : undefined });
+			return false;
 		}
 	}
 
@@ -502,7 +506,14 @@ export class ProjectManager {
 		});
 		if (nextFps === null) return null;
 
+		const previous = frameRateToFloat(this.active.settings.fps);
 		new UpdateProjectSettingsCommand({ fps: nextFps }).execute();
+		// Upstream behaviour (manual imports): the project follows the fastest footage. Say so,
+		// since frame-based timing changes with it.
+		const format = (fps: number) => Number(fps.toFixed(3)).toString();
+		toast.info(`Project frame rate raised to ${format(frameRateToFloat(nextFps))} fps`, {
+			description: `Imported media has a higher frame rate than the project (${format(previous)} fps). Change it in project settings if needed.`,
+		});
 		return nextFps;
 	}
 

@@ -2,22 +2,29 @@
 // then wraps the resulting scene list in one command, so the whole draft is one Undo step even
 // when it touches several scenes (the root timeline and compound clip contents).
 import type { Bookmark, SceneTracks, TScene } from "@/timeline";
-import { roundMediaTime } from "@/wasm";
+import { TICKS_PER_SECOND, roundMediaTime } from "@/wasm";
+import { getGraphicDefinition } from "@/graphics";
 import { getFrameTime } from "@/timeline/bookmarks";
 import { buildCompoundFromElements, isCompoundElement, relocateVisualCompounds, syncCompoundDurations, ungroupCompoundElement } from "@/timeline/compound";
 import { applyRippleAdjustments, computeRippleAdjustments } from "@/ripple";
 import type { FrameRate } from "opencut-wasm";
 import { generateUUID } from "@/utils/id";
 import { validNote } from "./notes";
-import { type AgentElement, type AgentTrackRef, type LoadedMedia, secs } from "./elements";
-import { type BuildContext, applyAgentKeyframes, cloneTracks, placeAgentElement } from "./compound-content";
+import { type AgentElement, type AgentKeyframe, type AgentTrackRef, type LoadedMedia, secs } from "./elements";
+import { type BuildContext, applyAgentKeyframes, cloneTracks, placeAgentElement, upsertAgentKeyframe } from "./compound-content";
 import { type AgentMatch, type ElementHit, addressOf, getScenePaths, orderedTracks, resolveCompoundTarget, resolveMatch } from "./scene-graph";
 
 /** `compound` = add into that compound clip's content (times relative to it). */
 export type DraftTrackRef = AgentTrackRef & { compound?: AgentMatch };
 export type DraftOp =
-	| { op: "set"; match: AgentMatch; start?: number; duration?: number; trimStart?: number; params?: Record<string, unknown> }
+	| {
+		op: "set"; match: AgentMatch; start?: number; duration?: number; trimStart?: number; params?: Record<string, unknown>;
+		/** `merge` (default) upserts these keys; `replace` first drops every keyframe of the element. */
+		keyframes?: AgentKeyframe[]; keyframesMode?: "merge" | "replace";
+	}
 	| { op: "delete"; match: AgentMatch }
+	/** Deletes the matched element and puts `element` in its place, as one op (all or nothing). */
+	| { op: "replace"; match: AgentMatch; element: Partial<AgentElement>; track?: AgentTrackRef }
 	| { op: "note"; text: string; start: number; end?: number; match?: AgentMatch[] }
 	| { op: "resolve-note"; id: string }
 	| { op: "reply-note"; id: string; text: string }
@@ -26,15 +33,34 @@ export type DraftOp =
 	| { op: "ungroup"; match: AgentMatch }
 	| ({ op: "compound"; track?: DraftTrackRef; agent_id?: string; name: string; start: number; duration?: number; trimStart?: number }
 		& Pick<AgentElement, "params" | "keyframes" | "group"> & NonNullable<AgentElement["compound"]>);
-export type Draft = { schema: string; rev: string; label?: string; projectId?: string; ops: DraftOp[] };
+/** `atomic: true`: if any op fails, the draft changes nothing. */
+export type Draft = { schema: string; rev: string; label?: string; projectId?: string; atomic?: boolean; ops: DraftOp[] };
 export type Touched = { sceneId: string; elementId: string };
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const INTERPOLATIONS: unknown[] = ["linear", "hold", "bezier"];
+const seconds = (ticks: number) => ticks / TICKS_PER_SECOND;
 
-export function computeAgentDraft({ scenes, rootSceneId, ops, mediaFor, canvas, fps, ripple, results: initial = [] }: {
+/** Property paths (and values) one `set` keyframe writes: `scale` = both axes, relative to the element's own scale. */
+function keyframeTargets(el: any, k: AgentKeyframe): { propertyPath: string; value: number | string }[] {
+	if (!k || typeof k !== "object" || typeof k.path !== "string" || !k.path || typeof k.time !== "number" || !Number.isFinite(k.time)
+		|| !((typeof k.value === "number" && Number.isFinite(k.value)) || typeof k.value === "string")
+		|| (k.interpolation !== undefined && !INTERPOLATIONS.includes(k.interpolation))) {
+		throw new Error(`invalid keyframe: ${JSON.stringify(k)}`);
+	}
+	if (k.path === "scale") {
+		return ["transform.scaleX", "transform.scaleY"].map((propertyPath) => ({ propertyPath, value: Number(k.value) * (typeof el.params?.[propertyPath] === "number" ? el.params[propertyPath] : 1) }));
+	}
+	if (el.type === "graphic" && el.definitionId && getGraphicDefinition({ definitionId: el.definitionId }).params.some((p) => p.key === k.path)) {
+		return [{ propertyPath: `params.${k.path}`, value: k.value }];
+	}
+	return [{ propertyPath: k.path, value: k.value }];
+}
+
+export function computeAgentDraft({ scenes, rootSceneId, ops, mediaFor, canvas, fps, ripple, atomic = false, results: initial = [] }: {
 	scenes: TScene[]; rootSceneId: string; ops: DraftOp[]; mediaFor: (e: AgentElement) => LoadedMedia | undefined;
-	canvas: { width: number; height: number }; fps: FrameRate; ripple: boolean; results?: any[];
-}): { scenes: TScene[]; results: any[]; touched: Touched[] } {
+	canvas: { width: number; height: number }; fps: FrameRate; ripple: boolean; atomic?: boolean; results?: any[];
+}): { scenes: TScene[]; results: any[]; touched: Touched[]; applied: boolean } {
 	let list = scenes;
 	const results: any[] = [...initial];
 	const touched: Touched[] = [];
@@ -82,9 +108,13 @@ export function computeAgentDraft({ scenes, rootSceneId, ops, mediaFor, canvas, 
 		}
 		const ctx: BuildContext = { canvas, keyframes: [], mediaFor, existing: list, created: [] };
 		const placed = editTracks(sceneId, (tracks) => placeAgentElement({ tracks, sceneId, e: element, ref: track, ctx }));
+		placedElement(sceneId, track.name, placed, ctx, result);
+	};
+	/** Keyframes, nested scenes, selection, and result addresses of an element just placed. */
+	const placedElement = (sceneId: string, trackName: string, placed: { element: any }, ctx: BuildContext, result: any) => {
 		list = applyAgentKeyframes({ scenes: [...list, ...ctx.created], keyframes: ctx.keyframes, defaultSceneId: sceneId });
 		touched.push({ sceneId, elementId: placed.element.id });
-		result.track = track.name;
+		result.track = trackName;
 		address(result, "element", sceneId, placed.element.id);
 		if (isCompoundElement(placed.element)) {
 			result.sceneId = placed.element.sceneId;
@@ -119,10 +149,46 @@ export function computeAgentDraft({ scenes, rootSceneId, ops, mediaFor, canvas, 
 						patch.trimEnd = Math.max(0, el.sourceDuration - (patch.trimStart ?? el.trimStart) - (patch.duration ?? el.duration));
 					}
 					if (op.params) patch.params = { ...el.params, ...op.params };
-					track.elements[hit.index] = { ...el, ...patch };
+					let next = { ...el, ...patch };
+					if (op.keyframes !== undefined || op.keyframesMode !== undefined) {
+						if (!Array.isArray(op.keyframes)) throw new Error("set: keyframes must be a list");
+						const mode = op.keyframesMode ?? "merge";
+						if (mode !== "merge" && mode !== "replace") throw new Error(`set: unknown keyframesMode ${mode}`);
+						if (mode === "replace") {
+							const { animations: _dropped, ...rest } = next;
+							next = rest;
+						}
+						for (const k of op.keyframes) {
+							for (const target of keyframeTargets(next, k)) next = upsertAgentKeyframe(next, { ...target, time: k.time, interpolation: k.interpolation }, { strict: true });
+						}
+					}
+					track.elements[hit.index] = next;
 				});
 				touched.push({ sceneId: hit.sceneId, elementId: hit.element.id });
 				address(result, "element", hit.sceneId, hit.element.id);
+				return;
+			}
+			case "replace": {
+				const hit = find(op.match);
+				const given = op.element;
+				if (!given || typeof given !== "object") throw new Error("replace needs an element");
+				if (op.track !== undefined && (typeof op.track?.name !== "string" || "compound" in op.track)) throw new Error("replace: track needs {name} and stays in the element's scene");
+				const old = hit.element;
+				// Unset fields keep the replaced element's agentId, name, and span.
+				const element = {
+					...given, agent_id: given.agent_id ?? old.agentId, name: given.name ?? old.name,
+					start: given.start ?? seconds(old.startTime), duration: given.duration ?? seconds(old.duration),
+				} as AgentElement;
+				result.agentId = element.agent_id;
+				const ref = op.track ?? { name: hit.track.name, id: hit.track.id };
+				const ctx: BuildContext = { canvas, keyframes: [], mediaFor, existing: list, created: [] };
+				// One edit: ripple editing sees a replacement, not a removal followed by an insertion.
+				const placed = editTracks(hit.sceneId, (tracks) => {
+					(orderedTracks(tracks).find((t) => t.id === hit.track.id) as any).elements.splice(hit.index, 1);
+					return placeAgentElement({ tracks, sceneId: hit.sceneId, e: element, ref, ctx });
+				});
+				result.replaced = { sceneId: hit.sceneId, id: old.id };
+				placedElement(hit.sceneId, ref.name, placed, ctx, result);
 				return;
 			}
 			case "delete": {
@@ -224,9 +290,14 @@ export function computeAgentDraft({ scenes, rootSceneId, ops, mediaFor, canvas, 
 		}
 		results[i] = result;
 	}
+	if (atomic && results.some((r) => !r?.ok)) {
+		// All or nothing: the ops that would have applied are reported as skipped; nothing changes.
+		const skipped = (r: any) => ({ op: r.op, ...(r.match !== undefined ? { match: r.match } : {}), ...(r.agentId !== undefined ? { agentId: r.agentId } : {}), ok: false, skipped: true, error: "not applied: another op of this atomic draft failed" });
+		return { scenes, touched: [], applied: false, results: results.map((r) => (r?.ok ? skipped(r) : r)) };
+	}
 	// Derived compound state up front (track relocation, durations), so applying the draft adds no
 	// side effects to other scenes and one undo restores exactly what it changed.
 	list = syncCompoundDurations(relocateVisualCompounds(list));
 	for (const fill of finish) fill();
-	return { scenes: list, results, touched };
+	return { scenes: list, results, touched, applied: true };
 }
