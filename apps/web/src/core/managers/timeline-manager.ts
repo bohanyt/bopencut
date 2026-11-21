@@ -64,7 +64,6 @@ import {
 	UngroupCompoundCommand,
 } from "@/commands/timeline";
 import type { InsertElementParams } from "@/commands/timeline/element/insert-element";
-import { cancelInteraction } from "@/editor/cancel-interaction";
 import type {
 	PlannedElementMove,
 	PlannedTrackCreation,
@@ -798,11 +797,6 @@ export class TimelineManager {
 		this.previewOverlay.clear();
 		this.previewTracks = null;
 		if (notify) this.notify();
-	}
-
-	cancelPreview({ notify = true }: { notify?: boolean } = {}): void {
-		this.discardPreview({ notify });
-		cancelInteraction();
 	}
 
 	private applyPreviewOverlay(tracks: SceneTracks): SceneTracks {

@@ -34,6 +34,7 @@ import {
 	getCompoundPath,
 	getNestedTimeAtParentTime,
 } from "@/timeline/compound-navigation";
+import { cancelInteraction } from "@/editor/cancel-interaction";
 
 /** Tracks of another scene that the scenes manager changed itself while a command ran. */
 export interface DerivedSceneChange {
@@ -208,9 +209,10 @@ export class ScenesManager {
 	}
 
 	private setActiveScene(scene: TScene | null): void {
-		if (this.active?.id !== scene?.id || this.active?.tracks !== scene?.tracks) {
+		if (this.active?.id !== scene?.id) {
 			// The scene transition publishes its own notifications after restoring the playhead.
-			this.editor.timeline.cancelPreview({ notify: false });
+			this.editor.timeline.discardPreview({ notify: false });
+			cancelInteraction();
 		}
 		this.active = scene;
 	}

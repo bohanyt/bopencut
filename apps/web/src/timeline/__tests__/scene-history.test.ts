@@ -4,7 +4,7 @@ import type { TProject } from "@/project/types";
 import type { MediaAsset } from "@/media/types";
 import { buildEffectParamPath, getKeyframeAtTime } from "@/animation";
 import { applyAnimationPresets, PRESET_PARAM } from "@/animation/presets";
-import * as interaction from "@/editor/cancel-interaction";
+import { registerCanceller } from "@/editor/cancel-interaction";
 import { allElements, allTracks, fixture, getHost, refs, t, video } from "./compound-fixtures";
 
 // Another test file replaces opencut-wasm with a partial mock and Bun keeps that module shape,
@@ -565,63 +565,6 @@ describe("commands that remove clips", () => {
 });
 
 describe("scene transitions", () => {
-	for (const direction of ["undo", "redo"] as const) {
-		test(`same-scene ${direction} cancels a preview before it can replace replayed tracks`, () => {
-			const { editor, main, first } = setupSplitHistory();
-			editor.timeline.updateElements({ updates: [{ ...first, patch: { duration: t(1) } }] });
-			if (direction === "redo") editor.command.undo();
-
-			let dragging = true;
-			const move = () => {
-				if (dragging) {
-					editor.timeline.previewElements({ updates: [{ ...first, updates: { duration: t(0.5) } }] });
-				}
-			};
-			const unregister = interaction.registerCanceller({ fn: () => {
-				dragging = false;
-				editor.timeline.discardPreview();
-			} });
-
-			try {
-				move();
-				editor.command[direction]();
-				move();
-				editor.timeline.commitPreview();
-				expect(main()[0].duration).toBe(t(direction === "undo" ? 2 : 1));
-				expect(editor.command.canRedo()).toBe(direction === "undo");
-			} finally {
-				unregister();
-			}
-		});
-	}
-
-	test("cancelling a captured pointer invalidates the drag before lost capture", () => {
-		let active = true;
-		let commits = 0;
-		let releases = 0;
-		const pointer = {
-			hasPointerCapture: () => true,
-			releasePointerCapture: () => {
-				releases++;
-				if (active) commits++;
-			},
-		};
-		const { registerPointerCanceller } = interaction;
-		const unregister = registerPointerCanceller({
-			target: pointer,
-			pointerId: 1,
-			onCancel: () => { active = false; },
-		});
-		try {
-			interaction.cancelInteraction();
-			expect(active).toBe(false);
-			expect(releases).toBe(1);
-			expect(commits).toBe(0);
-		} finally {
-			unregister();
-		}
-	});
-
 	test("a scene switch cancels the gesture before it can preview again", async () => {
 		const { editor, first } = setupSplitHistory();
 		const sceneId = await editor.scenes.createScene({ name: "Destination", isMain: false });
@@ -632,7 +575,7 @@ describe("scene transitions", () => {
 				editor.timeline.previewElements({ updates: [{ ...first, updates: { duration: t(1) } }] });
 			}
 		};
-		const unregister = interaction.registerCanceller({ fn: () => {
+		const unregister = registerCanceller({ fn: () => {
 			dragging = false;
 			editor.timeline.discardPreview();
 		} });
@@ -667,20 +610,6 @@ describe("scene transitions", () => {
 
 		await editor.scenes.switchToScene({ sceneId: "main" });
 		expect(editor.timeline.getPreviewTracks()).toBe(source);
-	});
-
-	test("replacing committed tracks discards the preview even when the scene id stays the same", () => {
-		const { editor, tracks, first } = setupSplitHistory();
-		const scene = editor.scenes.getActiveScene();
-		const replacement = { ...tracks(), main: { ...tracks().main, elements: [video("replacement", 0, 3)] } };
-
-		editor.timeline.previewElements({ updates: [{ ...first, updates: { duration: t(1) } }] });
-		editor.scenes.setScenes({ scenes: [{ ...scene, tracks: replacement }] });
-		editor.timeline.commitPreview();
-
-		expect(editor.timeline.getPreviewTracks()).toBe(replacement);
-		expect(tracks()).toBe(replacement);
-		expect(editor.command.canUndo()).toBe(false);
 	});
 
 	async function sceneWithTitle(editor: ReturnType<typeof setup>) {

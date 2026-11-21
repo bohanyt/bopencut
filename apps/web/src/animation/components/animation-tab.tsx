@@ -30,7 +30,7 @@ import {
 	readAnimationPresets,
 	readPresetSettings,
 } from "@/animation/presets";
-import { getPresetDurationRange, startPresetDurationDrag } from "@/animation/duration-control";
+import { getPresetDurationRange } from "@/animation/duration-control";
 import type { TimelineElement } from "@/timeline";
 import { useElementPreview } from "@/timeline/hooks/use-element-preview";
 
@@ -118,23 +118,25 @@ function PresetDuration({
 	const value = clampDuration(duration);
 	const resetValue = clampDuration(defaultDuration);
 	const [draft, setDraft] = useState<string | null>(null);
-	const drag = useRef<ReturnType<typeof startPresetDurationDrag> | null>(null);
+	const drag = useRef<{ pointerId: number; previewing: boolean } | null>(null);
 	const label = side === "in" ? "In length" : "Out length";
 	const durationKey = side === "in" ? PRESET_PARAM.inDuration : PRESET_PARAM.outDuration;
 
 	useEffect(() => {
 		const finish = (event: PointerEvent) => {
 			if (drag.current?.pointerId !== event.pointerId) return;
-			const gesture = drag.current;
+			const { previewing } = drag.current;
 			drag.current = null;
-			gesture.finish(event.type !== "pointercancel");
+			if (!previewing) return;
+			if (event.type === "pointercancel") timeline.discardPreview();
+			else timeline.commitPreview();
 		};
 		window.addEventListener("pointerup", finish);
 		window.addEventListener("pointercancel", finish);
 		return () => {
 			window.removeEventListener("pointerup", finish);
 			window.removeEventListener("pointercancel", finish);
-			drag.current?.finish(false);
+			if (drag.current?.previewing) timeline.discardPreview();
 			drag.current = null;
 		};
 	}, [timeline]);
@@ -152,20 +154,15 @@ function PresetDuration({
 					disabled={min === max}
 					className="accent-primary min-w-0 flex-1 disabled:opacity-50"
 					onPointerDown={(event) => {
-						if (event.button === 0 && event.isPrimary && !drag.current) {
+						if (event.button === 0 && event.isPrimary) {
 							// Commit a focused number field before the range input starts changing.
 							event.currentTarget.focus();
-							drag.current = startPresetDurationDrag({
-								pointerId: event.pointerId,
-								onCommit: () => timeline.commitPreview(),
-								onDiscard: () => timeline.discardPreview(),
-							});
+							drag.current = { pointerId: event.pointerId, previewing: false };
 						}
 					}}
 					onChange={(event) => {
 						const raw = event.currentTarget.valueAsNumber;
 						const gesture = drag.current;
-						if (gesture?.cancelled) return;
 						// The range input serializes fractional endpoints with reduced precision.
 						const seconds = Math.abs(raw - max) < 1e-12
 							? max
