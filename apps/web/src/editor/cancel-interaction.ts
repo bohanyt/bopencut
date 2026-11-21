@@ -10,6 +10,26 @@ export function registerCanceller({ fn }: { fn: CancelFn }): () => void {
 	};
 }
 
+export function registerPointerCanceller({
+	target,
+	pointerId,
+	onCancel,
+}: {
+	target: Pick<HTMLElement, "hasPointerCapture" | "releasePointerCapture">;
+	pointerId: number;
+	onCancel: () => void;
+}): () => void {
+	return registerCanceller({
+		fn: () => {
+			// Clear the gesture before lost pointer capture can finish it.
+			onCancel();
+			if (target.hasPointerCapture(pointerId)) {
+				target.releasePointerCapture(pointerId);
+			}
+		},
+	});
+}
+
 export function cancelInteraction(): boolean {
 	if (cancellers.size === 0) return false;
 

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useEditor } from "@/editor/use-editor";
+import { registerPointerCanceller } from "@/editor/cancel-interaction";
 import {
 	getDbFromLinePos,
 	getLinePosFromDb,
@@ -59,6 +60,7 @@ export function AudioVolumeLine({
 	const editor = useEditor();
 	const surfaceRef = useRef<HTMLDivElement>(null);
 	const activePointerIdRef = useRef<number | null>(null);
+	const unregisterDragRef = useRef<(() => void) | null>(null);
 	const startVolumeRef = useRef(getElementVolume({ element }));
 	const lastPreviewVolumeRef = useRef(getElementVolume({ element }));
 	const hasChangedRef = useRef(false);
@@ -109,6 +111,8 @@ export function AudioVolumeLine({
 	const finishDrag = useCallback(
 		({ shouldCommit }: { shouldCommit: boolean }) => {
 			activePointerIdRef.current = null;
+			unregisterDragRef.current?.();
+			unregisterDragRef.current = null;
 			setIsDragging(false);
 
 			if (shouldCommit && hasChangedRef.current) {
@@ -123,6 +127,14 @@ export function AudioVolumeLine({
 		},
 		[editor],
 	);
+
+	useEffect(() => () => {
+		if (activePointerIdRef.current === null) return;
+		activePointerIdRef.current = null;
+		unregisterDragRef.current?.();
+		unregisterDragRef.current = null;
+		editor.timeline.discardPreview();
+	}, [editor]);
 
 	const updateFromPointer = useCallback(
 		({ clientX, clientY }: { clientX: number; clientY: number }) => {
@@ -151,7 +163,7 @@ export function AudioVolumeLine({
 
 	const handlePointerDown = useCallback(
 		(event: React.PointerEvent<HTMLDivElement>) => {
-			if (event.button !== 0) {
+			if (event.button !== 0 || activePointerIdRef.current !== null) {
 				return;
 			}
 
@@ -166,12 +178,17 @@ export function AudioVolumeLine({
 			hasChangedRef.current = false;
 			setIsDragging(true);
 			event.currentTarget.setPointerCapture(event.pointerId);
+			unregisterDragRef.current = registerPointerCanceller({
+				target: event.currentTarget,
+				pointerId: event.pointerId,
+				onCancel: () => finishDrag({ shouldCommit: false }),
+			});
 			updateFromPointer({
 				clientX: event.clientX,
 				clientY: event.clientY,
 			});
 		},
-		[currentVolume, editor.selection, element.id, trackId, updateFromPointer],
+		[currentVolume, editor.selection, element.id, finishDrag, trackId, updateFromPointer],
 	);
 
 	const handlePointerMove = useCallback(
@@ -215,8 +232,8 @@ export function AudioVolumeLine({
 		[finishDrag],
 	);
 
-	const handleLostPointerCapture = useCallback(() => {
-		if (activePointerIdRef.current === null) {
+	const handleLostPointerCapture = useCallback((event: React.PointerEvent) => {
+		if (activePointerIdRef.current !== event.pointerId) {
 			return;
 		}
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { cancelInteraction } from "@/editor/cancel-interaction";
 import { PreviewInteractionController } from "./controllers/preview-interaction-controller";
 import { TransformHandleController } from "./controllers/transform-handle-controller";
 
@@ -88,6 +89,33 @@ function fixture() {
 	};
 }
 describe("preview groups", () => {
+	test("cancels a captured canvas drag before later pointer events", () => {
+		const f = fixture();
+		const controller = new PreviewInteractionController({
+			depsRef: {
+				current: {
+					...f,
+					input: { isShiftHeld: () => true },
+					playback: { getIsPlaying: () => false, subscribe: () => () => {} },
+					preview: { isMaskMode: () => false },
+				} as any,
+			},
+		});
+		try {
+			controller.onPointerDown(f.event(400, 500));
+			controller.onPointerMove(f.event(430, 520));
+			const preview = f.updates();
+			expect(preview).toHaveLength(2);
+			expect(cancelInteraction()).toBe(true);
+			controller.onPointerMove(f.event(450, 530));
+			controller.onPointerUp(f.event(450, 530));
+			expect(f.updates()).toBe(preview);
+			expect(f.commits()).toBe(0);
+		} finally {
+			controller.destroy();
+		}
+	});
+
 	test("selects and moves members together, double-click isolates one", () => {
 		const f = fixture();
 		const c = new PreviewInteractionController({
