@@ -657,6 +657,37 @@ describe("basedOn is checked before anything is imported", () => {
 		expect(elements(editor).some((e) => e.agentId === "late")).toBe(true);
 	});
 
+	test("a draft waiting for a preview wakes when the active scene changes", async () => {
+		const editor = setup();
+		const other = scene("other", { overlay: [], main: { id: "t-other", name: "Main", type: "video", muted: false, hidden: false, elements: [] }, audio: [] });
+		editor.scenes.setScenes({ scenes: [...editor.scenes.getScenes(), { ...other, isMain: false }], activeSceneId: "main" });
+		const slow = gate();
+		const backend = fakeBackend({ slow: new Map([["slow.png", slow.promise]]) });
+		restore = backend.restore;
+		const run = applyDraft(draft([{ op: "add", track: { name: "Logos" }, element: image("slow.png", "late") }]));
+		await Bun.sleep(5);
+		editor.timeline.previewElements({
+			updates: [{ trackId: "t-main", elementId: "old", updates: { startTime: T(1) } }],
+		});
+		slow.open();
+		await Bun.sleep(20);
+		expect(backend.state.results).toEqual([]);
+		expect(editor.timeline.isPreviewActive()).toBe(true);
+
+		await editor.scenes.switchToScene({ sceneId: "other" });
+		const finished = await Promise.race([run.then(() => true), Bun.sleep(150).then(() => false)]);
+		if (!finished) {
+			// Wake the waiter on the old implementation so the test can finish before its deadline.
+			editor.timeline.previewElements({
+				updates: [{ trackId: "t-other", elementId: "old", updates: { startTime: T(2) } }],
+			});
+			editor.timeline.discardPreview();
+			await run;
+		}
+		expect(finished).toBe(true);
+		expect(backend.state.results[0]).toMatchObject({ applied: false, error: expect.stringContaining("another scene") });
+	});
+
 	test("a clip move started while the draft's assets load is not cut off: the draft waits for the release", async () => {
 		const editor = setup();
 		const { beginTimelineGesture } = await import("@/timeline/gesture-state");

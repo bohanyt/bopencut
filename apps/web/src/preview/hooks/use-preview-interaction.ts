@@ -4,7 +4,6 @@ import { useCommittedRef } from "@/hooks/use-committed-ref";
 import { useShiftKey } from "@/hooks/use-shift-key";
 import { usePreviewViewport } from "@/preview/components/preview-viewport";
 import type { SnapLine } from "@/preview/preview-snap";
-import { registerCanceller } from "@/editor/cancel-interaction";
 import {
 	PreviewInteractionController,
 	type PreviewInteractionDeps,
@@ -70,11 +69,6 @@ export function usePreviewInteraction({
 		() => controller.subscribe({ listener: rerender }),
 		[controller],
 	);
-
-	useEffect(() => {
-		if (!controller.isDragging) return;
-		return registerCanceller({ fn: () => controller.cancel() });
-	}, [controller.isDragging, controller]);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {

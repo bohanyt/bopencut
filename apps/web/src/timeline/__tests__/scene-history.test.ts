@@ -4,6 +4,7 @@ import type { TProject } from "@/project/types";
 import type { MediaAsset } from "@/media/types";
 import { buildEffectParamPath, getKeyframeAtTime } from "@/animation";
 import { applyAnimationPresets, PRESET_PARAM } from "@/animation/presets";
+import { registerCanceller } from "@/editor/cancel-interaction";
 import { allElements, allTracks, fixture, getHost, refs, t, video } from "./compound-fixtures";
 
 // Another test file replaces opencut-wasm with a partial mock and Bun keeps that module shape,
@@ -564,6 +565,33 @@ describe("commands that remove clips", () => {
 });
 
 describe("scene transitions", () => {
+	test("a scene switch cancels the gesture before it can preview again", async () => {
+		const { editor, first } = setupSplitHistory();
+		const sceneId = await editor.scenes.createScene({ name: "Destination", isMain: false });
+		editor.command.clear();
+		let dragging = true;
+		const move = () => {
+			if (dragging) {
+				editor.timeline.previewElements({ updates: [{ ...first, updates: { duration: t(1) } }] });
+			}
+		};
+		const unregister = registerCanceller({ fn: () => {
+			dragging = false;
+			editor.timeline.discardPreview();
+		} });
+
+		try {
+			move();
+			await editor.scenes.switchToScene({ sceneId });
+			move();
+			expect(editor.timeline.isPreviewActive()).toBe(false);
+			editor.timeline.commitPreview();
+			expect(editor.command.canUndo()).toBe(false);
+		} finally {
+			unregister();
+		}
+	});
+
 	test("switching scenes discards an uncommitted preview before a late commit", async () => {
 		const { editor, tracks, first } = setupSplitHistory();
 		const source = tracks();

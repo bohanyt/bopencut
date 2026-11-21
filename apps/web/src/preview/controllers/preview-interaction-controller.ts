@@ -3,6 +3,7 @@ import type {
 	PointerEvent as ReactPointerEvent,
 } from "react";
 import type { MediaAsset } from "@/media/types";
+import { registerCanceller } from "@/editor/cancel-interaction";
 import {
 	getVisibleElementsWithBounds,
 	type ElementWithBounds,
@@ -234,6 +235,7 @@ export class PreviewInteractionController {
 	private memberId: string | null = null;
 	private wasPlaying: boolean;
 	private unsubscribePlayback: (() => void) | null = null;
+	private unregisterGesture: (() => void) | null = null;
 
 	constructor({ depsRef }: { depsRef: PreviewInteractionDepsRef }) {
 		this.depsRef = depsRef;
@@ -253,10 +255,6 @@ export class PreviewInteractionController {
 
 	private get deps(): PreviewInteractionDeps {
 		return this.depsRef.current;
-	}
-
-	get isDragging(): boolean {
-		return this.gesture.kind === "dragging";
 	}
 
 	get editingText(): EditingTextState | null {
@@ -344,6 +342,7 @@ export class PreviewInteractionController {
 		button,
 	}: ReactPointerEvent): void {
 		if (this.editingTextState) return;
+		if (this.gesture.kind !== "idle") return;
 		if (this.deps.preview.isMaskMode()) return;
 		if (button !== PRIMARY_POINTER_BUTTON) return;
 
@@ -374,6 +373,7 @@ export class PreviewInteractionController {
 		};
 
 		currentTarget.setPointerCapture(pointerId);
+		this.unregisterGesture = registerCanceller({ fn: () => this.cancel() });
 	}
 
 	onPointerMove({ clientX, clientY }: ReactPointerEvent): void {
@@ -468,6 +468,8 @@ export class PreviewInteractionController {
 	}: {
 		pointerState: CapturedPointerState | null;
 	}): void {
+		this.unregisterGesture?.();
+		this.unregisterGesture = null;
 		if (!pointerState) return;
 
 		if (!pointerState.captureTarget.hasPointerCapture(pointerState.pointerId)) {
