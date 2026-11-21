@@ -30,6 +30,36 @@ export function registerPointerCanceller({
 	});
 }
 
+export function trackScrub({
+	document,
+	onMove,
+	onEnd,
+	onStop,
+}: {
+	document: Pick<Document, "addEventListener" | "removeEventListener">;
+	onMove: (event: PointerEvent) => void;
+	onEnd: () => void;
+	onStop: () => void;
+}): () => void {
+	let active = true;
+	const stop = () => {
+		if (!active) return;
+		active = false;
+		unregister();
+		document.removeEventListener("pointermove", onMove);
+		document.removeEventListener("pointerup", finish);
+		onStop();
+	};
+	const finish = () => {
+		stop();
+		onEnd();
+	};
+	const unregister = registerCanceller({ fn: stop });
+	document.addEventListener("pointermove", onMove);
+	document.addEventListener("pointerup", finish);
+	return stop;
+}
+
 export function cancelInteraction(): boolean {
 	if (cancellers.size === 0) return false;
 

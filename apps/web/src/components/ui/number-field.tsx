@@ -2,7 +2,8 @@
 
 import { cn } from "@/utils/ui";
 import { clamp } from "@/utils/math";
-import { useRef, useState, useLayoutEffect, type ComponentProps } from "react";
+import { useEffect, useRef, useState, useLayoutEffect, type ComponentProps } from "react";
+import { trackScrub } from "@/editor/cancel-interaction";
 import { useFocusLock } from "@/hooks/use-focus-lock";
 import { Button } from "@/components/ui/button";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -137,8 +138,8 @@ function NumberField({
 	const iconRef = useRef<HTMLButtonElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const ghostRef = useRef<HTMLSpanElement>(null);
-	const startValueRef = useRef(0);
-	const cumulativeDeltaRef = useRef(0);
+	const stopScrubRef = useRef<(() => void) | null>(null);
+	useEffect(() => () => stopScrubRef.current?.(), []);
 	const [isInputFocused, setIsInputFocused] = useState(false);
 	const [suffixLeft, setSuffixLeft] = useState(0);
 	const ghostValue = Array.isArray(value) ? value.join(", ") : String(value ?? "");
@@ -165,12 +166,12 @@ function NumberField({
 	});
 
 	const handleIconPointerDown = (event: React.PointerEvent) => {
-		if (!onScrub || disabled || event.button !== 0) return;
+		const target = iconRef.current;
+		if (!onScrub || disabled || event.button !== 0 || !target || stopScrubRef.current) return;
 		const parsed = parseFloat(String(value ?? "0"));
-		startValueRef.current = Number.isNaN(parsed) ? 0 : parsed;
-		cumulativeDeltaRef.current = 0;
+		const startValue = Number.isNaN(parsed) ? 0 : parsed;
+		let cumulativeDelta = 0;
 		let hasReceivedFirstMove = false;
-		iconRef.current?.requestPointerLock();
 
 		const handlePointerMove = (moveEvent: PointerEvent) => {
 			// first movementX after pointer lock often contains a bogus warp delta
@@ -178,29 +179,35 @@ function NumberField({
 				hasReceivedFirstMove = true;
 				return;
 			}
-			cumulativeDeltaRef.current += moveEvent.movementX;
+			cumulativeDelta += moveEvent.movementX;
 			const newValue = scrubRanges
 				? scrubAcrossRanges({
-						startValue: startValueRef.current,
-						pixelDelta: cumulativeDeltaRef.current,
+						startValue,
+						pixelDelta: cumulativeDelta,
 						ranges: scrubRanges,
 						min: scrubClamp?.min,
 						max: scrubClamp?.max,
 					})
-				: startValueRef.current +
-					cumulativeDeltaRef.current * DRAG_SENSITIVITIES[dragSensitivity];
+				: startValue + cumulativeDelta * DRAG_SENSITIVITIES[dragSensitivity];
 			onScrub(newValue);
 		};
 
-		const handlePointerUp = () => {
-			document.removeEventListener("pointermove", handlePointerMove);
-			document.removeEventListener("pointerup", handlePointerUp);
-			document.exitPointerLock();
-			onScrubEnd?.();
+		const releaseLock = () => {
+			if (document.pointerLockElement === target) document.exitPointerLock();
 		};
-
-		document.addEventListener("pointermove", handlePointerMove);
-		document.addEventListener("pointerup", handlePointerUp);
+		const stop = trackScrub({
+			document,
+			onMove: handlePointerMove,
+			onEnd: () => onScrubEnd?.(),
+			onStop: () => {
+				stopScrubRef.current = null;
+				releaseLock();
+			},
+		});
+		stopScrubRef.current = stop;
+		void target.requestPointerLock?.()?.then(() => {
+			if (stopScrubRef.current === null) releaseLock();
+		}, () => {});
 	};
 
 	const canScrub = Boolean(icon && onScrub);
