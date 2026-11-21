@@ -792,11 +792,11 @@ export class TimelineManager {
 		this.updateTracks(afterTracks);
 	}
 
-	discardPreview(): void {
+	discardPreview({ notify = true }: { notify?: boolean } = {}): void {
 		if (this.previewOverlay.size === 0) return;
 		this.previewOverlay.clear();
 		this.previewTracks = null;
-		this.notify();
+		if (notify) this.notify();
 	}
 
 	private applyPreviewOverlay(tracks: SceneTracks): SceneTracks {

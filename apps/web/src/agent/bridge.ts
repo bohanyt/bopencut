@@ -78,7 +78,7 @@ function timelineBusy(): boolean {
 
 /** Resolves true once no timeline drag is in progress, false after `timeoutMs` (on changes, not polled). */
 function whenPreviewEnds({ timeoutMs }: { timeoutMs: number }): Promise<boolean> {
-	const timeline = EditorCore.getInstance().timeline;
+	const { timeline, scenes } = EditorCore.getInstance();
 	if (!timelineBusy()) return Promise.resolve(true);
 	return new Promise((resolve) => {
 		const finish = (ended: boolean) => {
@@ -90,7 +90,7 @@ function whenPreviewEnds({ timeoutMs }: { timeoutMs: number }): Promise<boolean>
 			if (!timelineBusy()) finish(true);
 		};
 		const timer = setTimeout(() => finish(false), timeoutMs);
-		const unsubscribes = [timeline.subscribe(check), subscribeTimelineGestures(check)];
+		const unsubscribes = [timeline.subscribe(check), scenes.subscribe(check), subscribeTimelineGestures(check)];
 	});
 }
 
