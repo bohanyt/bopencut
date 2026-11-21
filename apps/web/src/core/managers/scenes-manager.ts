@@ -186,7 +186,7 @@ export class ScenesManager {
 	private enterScene(target: TScene | null, playhead?: MediaTime): void {
 		const previous = this.active;
 		if (!target || previous?.id === target.id) {
-			this.active = target;
+			this.setActiveScene(target);
 			return;
 		}
 
@@ -197,7 +197,7 @@ export class ScenesManager {
 		if (playback.getIsPlaying()) {
 			playback.pause();
 		}
-		this.active = target;
+		this.setActiveScene(target);
 		selection.clearSelection();
 		playback.seek({ time: playhead ?? this.playheads.get(target.id) ?? ZERO_MEDIA_TIME });
 
@@ -205,6 +205,14 @@ export class ScenesManager {
 			sceneId: target.id,
 			viewState: { ...project.getTimelineViewState(), playheadTime: playback.getCurrentTime() },
 		});
+	}
+
+	private setActiveScene(scene: TScene | null): void {
+		if (this.active?.id !== scene?.id || this.active?.tracks !== scene?.tracks) {
+			// The scene transition publishes its own notifications after restoring the playhead.
+			this.editor.timeline.discardPreview({ notify: false });
+		}
+		this.active = scene;
 	}
 
 	async toggleBookmark({ time }: { time: MediaTime }): Promise<void> {
@@ -281,13 +289,13 @@ export class ScenesManager {
 				});
 
 				this.list = ensuredScenes;
-				this.active = currentScene;
+				this.setActiveScene(currentScene);
 				this.notify();
 			}
 		} catch (error) {
 			console.error("Failed to load project scenes:", error);
 			this.list = [];
-			this.active = null;
+			this.setActiveScene(null);
 			this.notify();
 		}
 	}
@@ -307,7 +315,7 @@ export class ScenesManager {
 		const fallbackScene = getMainScene({ scenes: ensuredScenes });
 
 		this.list = ensuredScenes;
-		this.active = currentScene || fallbackScene;
+		this.setActiveScene(currentScene || fallbackScene);
 		this.notify();
 
 		const hasAddedMainScene = ensuredScenes.length > scenes.length;
@@ -332,7 +340,7 @@ export class ScenesManager {
 
 	clearScenes(): void {
 		this.list = [];
-		this.active = null;
+		this.setActiveScene(null);
 		this.playheads.clear();
 		this.compoundParents.clear();
 		this.notify();
@@ -467,7 +475,7 @@ export class ScenesManager {
 		this.list = this.normalize(
 			this.list.map((s) => (s.id === activeId ? updatedScene : s)),
 		);
-		this.active = this.list.find((s) => s.id === activeId) ?? updatedScene;
+		this.setActiveScene(this.list.find((s) => s.id === activeId) ?? updatedScene);
 		this.notify();
 
 		const activeProject = this.editor.project.getActive();

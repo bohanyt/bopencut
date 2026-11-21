@@ -564,6 +564,40 @@ describe("commands that remove clips", () => {
 });
 
 describe("scene transitions", () => {
+	test("switching scenes discards an uncommitted preview before a late commit", async () => {
+		const { editor, tracks, first } = setupSplitHistory();
+		const source = tracks();
+		const sceneId = await editor.scenes.createScene({ name: "Destination", isMain: false });
+		const destination = editor.scenes.getScenes().find((scene) => scene.id === sceneId)!.tracks;
+		editor.command.clear();
+
+		editor.timeline.previewElements({ updates: [{ ...first, updates: { duration: t(1) } }] });
+		expect(editor.timeline.getPreviewTracks()?.main.elements[0].duration).toBe(t(1));
+		await editor.scenes.switchToScene({ sceneId });
+		expect(editor.timeline.getPreviewTracks()).toBe(destination);
+		expect(editor.timeline.isPreviewActive()).toBe(false);
+		editor.timeline.commitPreview();
+		expect(tracks()).toBe(destination);
+		expect(editor.command.canUndo()).toBe(false);
+
+		await editor.scenes.switchToScene({ sceneId: "main" });
+		expect(editor.timeline.getPreviewTracks()).toBe(source);
+	});
+
+	test("replacing committed tracks discards the preview even when the scene id stays the same", () => {
+		const { editor, tracks, first } = setupSplitHistory();
+		const scene = editor.scenes.getActiveScene();
+		const replacement = { ...tracks(), main: { ...tracks().main, elements: [video("replacement", 0, 3)] } };
+
+		editor.timeline.previewElements({ updates: [{ ...first, updates: { duration: t(1) } }] });
+		editor.scenes.setScenes({ scenes: [{ ...scene, tracks: replacement }] });
+		editor.timeline.commitPreview();
+
+		expect(editor.timeline.getPreviewTracks()).toBe(replacement);
+		expect(tracks()).toBe(replacement);
+		expect(editor.command.canUndo()).toBe(false);
+	});
+
 	async function sceneWithTitle(editor: ReturnType<typeof setup>) {
 		const sceneId = await editor.scenes.createScene({ name: "A", isMain: false });
 		await editor.scenes.switchToScene({ sceneId });
